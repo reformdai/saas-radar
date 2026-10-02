@@ -1,45 +1,33 @@
 
-【AI 领域翻译规则 — 本平台 100% 是 AI/ML/LLM 行业内容，严格遵守】
+【出海 SaaS 翻译规则 — 本平台的内容是面向海外市场的软件产品与经营，严格遵守】
 
-1. 歧义默认值：以下词在中文有非 AI 歧义，**一律按 AI 含义翻译**：
-   - LLM = 大语言模型（绝不译"法学硕士"/"Master of Laws"）
-   - Token / tokens = 模型 token（保留英文；绝不译"代币"/"令牌"）
-   - Transformer = Transformer 架构（保留英文；不译"变压器"）
-   - Diffusion = 扩散模型（AI 生成，不是物理扩散）
-   - Agent / Agentic = AI 智能体 / 智能体的（不译"代理人"/"中介"）
-   - Alignment = 对齐（AI 安全语境）
-   - Inference = 推理（模型生成）
-   - Reasoning = 推理（注意：与 inference 都译"推理"，必要时用"链式推理"区分 CoT；reasoning model 指 o1/o3/R1 这类思考型模型）
-   - Embedding = 嵌入向量（也可保留英文）
-   - Distillation = 知识蒸馏
-   - Hallucination = 模型幻觉
-   - Fine-tune / Fine-tuning = 微调
-   - Pretrain / Pretraining = 预训练
-   - Context window = 上下文窗口
-   - Prompt = 提示词
-   - Skill / Skills = 技能（Claude 等 Agent 框架的能力包，不译"特长"）
+1. 歧义默认值：以下词在中文有别的含义，**一律按软件产品与经营的含义翻译**：
+   - MRR = 月经常性收入（保留 MRR，首次可括注）；ARR = 年经常性收入（保留 ARR）
+   - Revenue = 收入；Gross = 毛（gross sales 译“毛销售额”）；Net = 净；Profit = 利润。不得互相替换
+   - Churn = 流失（率）；Retention = 留存；Conversion = 转化（率）；Trial = 试用
+   - Lifetime deal / LTD = 终身买断；One-time payment = 一次性买断
+   - Bootstrapped = 自筹资金、未融资（不译“靴子”）；Indie hacker = 独立开发者
+   - Launch = 上线、发布；Ship = 发布、上线（不译“船运”）
+   - Distribution = 分发、获客渠道；Cold outreach / cold email = 主动陌生联系、冷邮件
+   - Merchant of Record / MoR = 代收商（保留 MoR）
+   - Lead = 销售线索；Funnel = 转化漏斗；Pipeline = 销售管线
+   - Seat-based / usage-based pricing = 按席位计费 / 按用量计费
+   - Founder-led sales = 创始人亲自销售
+   - Wrapper = 套壳产品（指在现成模型或 API 上做薄层封装的产品）
 
 2. 以下专有名词**一律保留英文原文**，不翻译不加中文括注：
-   - AI 公司：OpenAI / Anthropic / Google DeepMind / xAI / Meta AI / Mistral / DeepSeek / Cohere / HuggingFace（HF）/ Runway / ElevenLabs / Suno / Pika / Midjourney / Perplexity
-   - 模型族（举例 + 通用规则）：GPT / Claude / Gemini / Llama / Qwen / Grok / o 系列 / DeepSeek / Mistral / Mixtral / Phi / Sora / Veo / Imagen
-     **规则**：任何大模型族名、产品代号一律保留英文
-   - 模型版本号（举例 + 通用规则）：GPT-5 / Claude 4.7 / Claude Sonnet 4.6 / Llama 4 / Gemini 3 / o3 / o4 / DeepSeek-V4 / Qwen3.7
-     **规则**：版本号一字不改（包括字母数字后缀如 4o / 4.7 / 405B / V4 / R1），绝不"翻译性扩写"（不要把 "405B" 译成 "4050 亿"，不要把 "V4" 译成 "第 4 代"）
-   - 技术缩写（举例 + 通用规则）：LLM / RAG / RLHF / DPO / LoRA / QLoRA / PEFT / MoE / CoT / ReAct / KV cache / SOTA / AGI / MCP / ADK / NPU / GPU / TPU
-     **规则**：任何 2-5 字母的全大写缩写，默认按 AI/ML 含义保留英文
-   - 评测基准（举例 + 通用规则）：MMLU / GPQA / HumanEval / SWE-bench / SWE-bench Verified / AIME / HLE / ARC-AGI / ARC-AGI 2 / MT-Bench / Chatbot Arena / Aider Polyglot / LiveCodeBench
-     **规则**：以 -bench / -eval 结尾或全大写的评测名一律保留英文
-   - AI 工具/产品：Cursor / Copilot / Codex / Aider / Devin / Cline / Claude Code / Windsurf / Zed / v0 / Bolt / Lovable / Replit Agent
-   - Agent 框架：LangChain / LangGraph / LlamaIndex / CrewAI / AutoGen / Pydantic AI / Vercel AI SDK / DSPy
-   - 推理/部署：Ollama / vLLM / SGLang / TensorRT / Triton / CUDA / ROCm
-   - 通用技术：API / SDK / CLI / IDE / SaaS / CDN / SSO / OAuth / JWT / WebSocket / SSE / gRPC
+   - 平台与服务：Stripe / Paddle / Lemon Squeezy / Shopify / Product Hunt / Hacker News / Show HN / Reddit / Indie Hackers / App Store / Google Play / Chrome Web Store / Gumroad / AppSumo
+   - 社区版块名：r/SaaS 等 subreddit 名称原样保留
+   - 产品名、公司名、版本号一字不改；不认识的产品名原样保留，不意译
+   - 指标缩写：MRR / ARR / LTV / CAC / ARPU / NPS / SEO / SEM / PPC / CTR / CRM / API / SDK / B2B / B2C / SMB / SaaS / PLG
 
-3. 中国厂商**优先用官方中文品牌名**（首次出现可双标"千问（Qwen3）"，后续选一种保持一致）：
-   - 千问（Qwen）/ 文心一言 / 智谱（GLM）/ 月之暗面（Kimi）/ 深度求索（DeepSeek）/ 阶跃星辰（Step）/ 零一万物（Yi）/ 百川 / 豆包（字节）/ 混元（腾讯）/ 可灵（Kling，快手）/ 即梦（Jimeng，字节）/ MiniMax（不译）/ 美团 LongCat / 昆仑万维 Skywork / 面壁 MiniCPM / 华为昇腾 / 寒武纪
+3. 经营数字**照原文保留**，不换算、不美化：
+   - 金额、币种、时间段原样：$18k this month / $1.86M ARR / €500 MRR，不要把 $18k 写成“近两万美元”，不要把美元换成人民币
+   - 原文说“this month”“last year”就照抄相对时间，不补具体年份
+   - 原文写的是毛收入就写毛收入，写的是 ARR 就写 ARR；原文没说口径就写“口径未说明”
+   - 收入、用户数等经营数字是作者自报，写进标题和摘要时注明“自报”或“自述”
 
 4. 代码 / 命令 / URL / 数字单位 **一字不改**保留：
    - 反引号代码 `code` 不翻译
-   - 命令如 /code-review、pip install、npm run 不译（不要译"代码审查"）
    - URL 原样
-   - 数字+单位：8k context / 175B params / 3.5x speedup / $3 per M tokens / 99.9%
-   - 金额、参数量、比例、区间必须保留原文的阿拉伯数字和单位；不要把 $10B-$100B 改写成“数百亿至数千亿美元”等中文数量词
+   - 百分比、区间、倍数保留原文的阿拉伯数字和单位

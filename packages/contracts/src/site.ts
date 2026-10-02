@@ -131,6 +131,51 @@ export interface PoolResponse {
   generatedAt: string;
 }
 
+/**
+ * What the site holds of the original: its body (from the feed or the article page), only the feed's
+ * summary, or only the title. It says what was fetched, not whether the content is true.
+ */
+export type MaterialStatus = "body" | "excerpt" | "title";
+
+export const MATERIAL_LABELS: Record<MaterialStatus, { label: string; hint: string }> = {
+  body: { label: "正文已获取", hint: "已取得原文正文（来自订阅源或原网页），摘要据此写成；不代表内容经过核实。" },
+  excerpt: { label: "仅摘要", hint: "只拿到订阅源或接口里的摘要，没有读到原文正文；细节请看原文。" },
+  title: { label: "仅标题", hint: "只拿到标题，没有读到摘要或正文；请看原文。" },
+};
+
+/**
+ * How the material reached the site: found live, in a new source's first import, already more than
+ * 48 hours old when found, or pushed in as backfill. Only `live` material is news of the day.
+ */
+export type DiscoveryArrival = "live" | "first-import" | "late" | "backfill";
+
+export const ARRIVAL_LABELS: Record<Exclude<DiscoveryArrival, "live">, { label: string; hint: string }> = {
+  "first-import": { label: "首批导入", hint: "新信源第一次抓取时的存量文章，不是当天的新消息。" },
+  late: { label: "旧文", hint: "本站发现时，原文已经发表超过 48 小时。" },
+  backfill: { label: "历史回灌", hint: "作为历史资料补进来的文章，不是当天的新消息。" },
+};
+
+/** A selected item on 今日发现, listed by when the site first found it. */
+export interface DiscoveryItem extends FeedItemSummary {
+  /** When the site first found the material (not when it was selected; that can be later). */
+  discoveredAt: string;
+  originalUrl: string;
+  material: MaterialStatus;
+  arrival: DiscoveryArrival;
+  /** One open question to look into next, written apart from the reason; null when the model gave none. */
+  researchQuestion: string | null;
+}
+
+export interface DiscoveriesResponse {
+  /** The one filter 今日发现 takes; a cursor only continues the category it was made for. */
+  filters: { category: CategoryKey | null };
+  items: DiscoveryItem[];
+  nextCursor: string | null;
+  /** Absolute time when a pending item becomes visible; the page re-checks then. */
+  refreshAt: string | null;
+  generatedAt: string;
+}
+
 export interface OutlineEntry {
   id: string;
   text: string;

@@ -61,7 +61,7 @@ flowchart LR
 
 | 地址 | 内容 |
 |---|---|
-| `/` `/all` `/hot` `/topics` `/daily` `/weekly` `/monthly` | 精选、全部动态、热门事件、主题、日报周报月报 |
+| `/` `/discover` `/all` `/hot` `/topics` `/daily` `/weekly` `/monthly` | 精选、今日发现、全部动态、热门事件、主题、日报周报月报 |
 | `/feed.xml` `/feed/all.xml` `/feed/full.xml` `/feed/daily.xml` | RSS：精选、全部、全文、日报 |
 | `/api/v1/` | 公开 API，文档在 `/openapi-v1.json`，说明页在 `/agent` |
 | `/api/mcp` | MCP 服务，工具名前缀是 `industry/site.ts` 的 `mcpPrefix` |

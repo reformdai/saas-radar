@@ -21,13 +21,13 @@ export function hrefWith(base: string, params: URLSearchParams, patch: Record<st
 /**
  * The feed's one filter row (精选 and 全部动态 alike): 全部, 一手, then the categories. One choice at a
  * time: picking 一手 clears the category and picking a category clears 一手. Older 资讯 / X links
- * still filter; the row then shows 全部.
+ * still filter; the row then shows 全部. Pages that filter by category only (今日发现) leave 一手 out.
  */
-export function CategoryTabs({ base, category, channel = "all", layoutId, size = "md", className = "" }: { base: string; category: CategoryKey | null; channel?: ChannelKey; layoutId: string; size?: "md" | "sm"; className?: string }) {
+export function CategoryTabs({ base, category, channel = "all", firstParty = true, layoutId, size = "md", className = "" }: { base: string; category: CategoryKey | null; channel?: ChannelKey; firstParty?: boolean; layoutId: string; size?: "md" | "sm"; className?: string }) {
   const [params] = useSearchParams();
   const items = [
     { key: "all", label: "全部", to: hrefWith(base, params, { category: null, channel: null }) },
-    { key: "firstParty", label: CHANNEL_LABELS.firstParty, to: hrefWith(base, params, { category: null, channel: "firstParty" }) },
+    ...(firstParty ? [{ key: "firstParty", label: CHANNEL_LABELS.firstParty, to: hrefWith(base, params, { category: null, channel: "firstParty" }) }] : []),
     ...CATEGORY_KEYS.map((k) => ({ key: k, label: CATEGORY_LABELS[k], to: hrefWith(base, params, { category: k, channel: null }) })),
   ];
   const active = channel === "firstParty" ? "firstParty" : (category ?? "all");

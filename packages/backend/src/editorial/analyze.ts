@@ -133,6 +133,7 @@ const UnderstandSchema = z.object({
   authorRole: z.enum(["principal", "observer", "relayer"]).catch("relayer"),
   tags: z.array(z.string()).max(12).catch([]),
   editorialJudgment: z.string().max(400).catch(""),
+  researchQuestion: z.string().max(400).catch(""),
   titleZh: z.string().trim().min(1).max(200),
   summaryZh: z.string().trim().min(1).max(4000),
 });
@@ -165,6 +166,8 @@ export interface AnalysisRun {
     titleZh: string;
     summaryZh: string;
     reasonZh: string | null;
+    /** One open question for the reader to look into, kept apart from the reason (understand only). */
+    researchQuestion?: string | null;
     tags: string[] | null;
     itemType?: string;
     authorRole?: string;
@@ -331,6 +334,7 @@ async function runUnderstand(a: AnalyzeInputArticle, opts: StepOpts): Promise<An
   const copy = finalizeCopy(translateInputOf(a), { titleZh: d.titleZh, summaryZh: d.summaryZh });
   return {
     kind: "understand", model: res.model, titleZh: copy.titleZh, summaryZh: copy.summaryZh, reasonZh: d.editorialJudgment.trim() || null,
+    researchQuestion: d.researchQuestion.trim() || null,
     tags: normalizeTags(d.tags, { fallbackCategory: CATEGORY_BY_ITEM_TYPE[d.itemType] }), itemType: d.itemType, authorRole: d.authorRole,
     identityGuard: copy.identityGuard, receiptIds: [res.receiptId], reused: res.reused,
   };
@@ -470,6 +474,7 @@ export async function analyzeArticle(articleId: string, opts: StepOpts = {}): Pr
     prefilter: { label: run.prefilter.label, reason: run.prefilter.reason },
     scores: out.scores, scoreModel: out.scoreModel, threshold: out.threshold, ...(out.scoreRefused ? { scoreRefused: true } : {}),
     ...(w ? { writer: w.kind, writerModel: w.model, itemType: w.itemType ?? null, authorRole: w.authorRole ?? null } : {}),
+    ...(w?.researchQuestion ? { researchQuestion: w.researchQuestion } : {}),
     ...(w?.identityGuard?.outcome === "fallback" ? { identityGuard: w.identityGuard } : {}),
     fact: out.fact,
   };

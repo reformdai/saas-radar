@@ -1,3 +1,62 @@
+# 出海 SaaS 雷达
+
+个人使用的出海 SaaS 信息搜集与展示站：每天开工前浏览值得关注的产品、收入与获客做法、用户问题和市场变化，再自己挑选、判断和调查。它基于开源的 AIHOT 行业热点站框架二次开发（MIT 许可，见文末），站点不使用 AIHOT 的名字和 Logo。
+
+## 第一版实际支持什么
+
+| 能力 | 说明 |
+|---|---|
+| 四个分类 | 产品发现（`products`）、收入与获客（`growth`）、用户问题（`problems`）、市场变化（`market`）。分类、标签、主题和提示词在 `industry/` 里，互相一致 |
+| 今日发现 `/discover` | 按**本站发现时间**倒序列出已入选、公开可见的材料，按天分组、用“更早的发现”翻页。新信源首批导入的旧文、发现时已发表超过 48 小时的旧文也会出现，并标“首批导入”“旧文”，同时写出原文发表时间 |
+| 材料获取状态 | 每张卡片标明“正文已获取”“仅摘要”或“仅标题”。它只说明拿到了什么，**不代表内容经过核实** |
+| 推荐理由与待调查 | 推荐理由（为什么值得看）和待调查问题（接下来该查什么）分两行显示，模型分别输出，互不混写 |
+| 收入数字 | 提示词要求标题和摘要注明“作者自报”、时间段和统计口径（没写就注明“口径未说明”）；“收入与获客”卡片另有一行提示 |
+| 其余框架能力 | 精选首页、全部动态、热点榜、日报/周报/月报、主题页、RSS、公开 API、MCP、后台，沿用框架原样 |
+| 已关闭 | 模型榜和 Codex 重置监控（`industry/features.ts`），对这个站没有意义 |
+
+“今日发现”的发现时间来自 `articles.discovered_at`：本站第一次存下这条材料的时间。它不是入选时间，入选要等分析完成，可能晚于发现时间。旧文归档、热度、日报和推送规则都没有改：首批导入和旧文仍不进“今天”的时间线、不推送。
+
+## 信源和搜索范围
+
+首次启动时导入 `industry/sources.json` 里的 5 个信源，之后在后台 `/admin/sources` 增删改：
+
+| 信源 | 类型 | 说明 |
+|---|---|---|
+| Tally Blog | `rss` | 创始人博客，`T1`、一手 |
+| Plausible Blog | `rss` | 创始人博客，`T1`、一手 |
+| Reddit r/SaaS 搜索：first customers | `rss` | Reddit 搜索订阅源，按发布时间排序，`T2` |
+| Hacker News 搜索：saas | `json_list` | HN Algolia 公开搜索接口，只取 story，`T2` |
+| Hacker News 搜索：first customers | `json_list` | 同上 |
+
+- **只覆盖配置好的关键词和订阅源，不是全网搜索。** 没有接入任何付费网页搜索，也没有接入 X。要看别的关键词，在后台按同样格式新建信源，例如把 Reddit 地址里的 `q=` 或 HN 地址里的 `query=` 换掉。
+- HN 字段映射：标题 `title`，原文链接优先用 `url`，没有 `url` 的帖子（Ask HN 等）用 `objectID` 拼成 `https://news.ycombinator.com/item?id=<objectID>`；发表时间用 `created_at_i`（秒级时间戳），摘要用 `story_text`，作者用 `author`。搜索结果只算线索，正文需要另外抓取。
+- Reddit 搜索订阅源里的自述帖正文较长时会直接作为正文（“正文已获取”），很短的只算摘要。Reddit 对服务器的访问限制可能和本机不同，部署后先在后台“预览抓取”确认能抓到。
+- 这些信源可用性的外网试抓记录在 `docs/plans/claude-implementation.md`。
+
+## 数据边界
+
+- 默认只展示中文标题、摘要、推荐理由和原文链接，所有信源的 `site_fulltext` 关闭，不在站内展示全文。
+- “正文已获取”只表示读到了原文正文（来自订阅源或原网页），摘要据此写成；不表示事实或收入数字经过核验。
+- 收入、用户数等经营数字多为作者自报。
+- 门槛（`industry/selection.ts`）沿用框架默认值，还没有用自己的标注样本校准；评分标准里的内容类型和五维权重也沿用原结构，只替换了“什么重要、什么是噪声”的例子。校准方法见 [精选与校准](docs/selection.md)。
+- 使用规则和隐私说明（`industry/pages/`）仍是模板，上线前需要你自己确认内容。
+
+## 需要你配置的环境
+
+按 [部署](docs/deploy.md) 运行。`node scripts/init-env.ts --llm-key <模型 API Key>` 会生成 `.env` 并填好随机密钥，其中需要你确认的是：
+
+- `LLM_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL`：任意 OpenAI 兼容的模型接口；
+- `SITE_URL`：站点对外地址；`ADMIN_PASSWORD`：后台密码；
+- `COLLECT_ENABLED`、`MODEL_CALLS_ENABLED`：上线采集和分析时为 `true`；本地开发、测试时设为 `false`；
+- `FEISHU_*_ENABLED`、`INDEXNOW_SUBMIT_ENABLED` 保持 `false`；
+- 不需要 SocialData、极致了、Jina 等付费服务的 key。
+
+改完代码后的检查命令见 [AGENTS.md](AGENTS.md)。
+
+---
+
+以下是上游 AIHOT 框架的原始说明。
+
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/banner-dark.png">

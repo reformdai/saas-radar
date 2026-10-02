@@ -126,7 +126,7 @@ export function missingEvidence(a: AnalyzeInputArticle): boolean {
 }
 
 export const understandUser = (a: AnalyzeInputArticle) =>
-  ["请按系统规则理解以下单篇材料，一次返回全部六个字段。", renderContext(a, { annotateQuoted: true })].join("\n\n");
+  ["请按系统规则理解以下单篇材料，一次返回全部七个字段。", renderContext(a, { annotateQuoted: true })].join("\n\n");
 
 // ── Identity context and guard ────────────────────────────────────────────────────────────────
 
