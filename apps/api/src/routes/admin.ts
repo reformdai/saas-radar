@@ -20,6 +20,7 @@ import { releaseReceipt } from "@aihot/backend/operations/recover";
 import { resolveDelivery } from "@aihot/backend/notify/deliver";
 import { sendProblem } from "../http/respond.ts";
 import { adminHandler } from "./admin-auth.ts";
+import { pauseWechat, wechatInbox } from "@aihot/backend/wechat/store";
 
 type Q = Record<string, string | undefined>;
 const q = (req: FastifyRequest) => req.query as Q;
@@ -36,6 +37,8 @@ function decodeImage(dataUrl: unknown): Buffer {
 }
 
 export function registerAdmin(app: FastifyInstance) {
+  app.get("/api/admin/wechat", adminHandler(async (req) => wechatInbox(q(req))));
+  app.post("/api/admin/wechat/group", adminHandler(async (req, _reply, admin) => pauseWechat(body(req), actorOf(admin))));
   // Sources (F18)
   app.get("/api/admin/sources", adminHandler(async (req) => {
     const f = q(req);

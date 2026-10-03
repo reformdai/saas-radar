@@ -20,7 +20,8 @@ const KEYS: Record<SourceRow["kind"], string[]> = {
   // X accounts are mostly read in shards, which apply only these.
   x_search: ["_aihot", "ingestNoiseFilter", "itemUrlPrefixRewrite", "query", "searchType"],
   mp_account: ["wxid", "ghid", "nickname"],
-  external: [],
+  // Reports and active search only store material; processing reads fetchPublicContent (jobs/content.ts).
+  external: ["fetchPublicContent"],
 };
 
 // Objects with fixed keys (headers and bodyJson are request data, free-form).

@@ -1,9 +1,10 @@
-// One selected report on 今日发现: what was fetched of the original, how it arrived, its source time
-// beside the site's discovery time, the reason and the open question kept apart, and the original link.
+// One listed report on 今日发现: whether it was selected, what was fetched of the original, how it
+// arrived (and which search query found it), its source time beside the site's discovery time, the reason and the open question kept
+// apart (a report that was not selected has no reason, but may still carry a question), and the original link.
 import { memo } from "react";
-import { ARRIVAL_LABELS, MATERIAL_LABELS, type DiscoveryItem as Item } from "@aihot/contracts/site";
+import { ARRIVAL_LABELS, MATERIAL_LABELS, SEARCH_EVIDENCE, type DiscoveryItem as Item } from "@aihot/contracts/site";
 import { CATEGORY_LABELS } from "@aihot/contracts/taxonomy";
-import { Badge } from "../../components/ui/Badge";
+import { Badge, SelectedBadge } from "../../components/ui/Badge";
 import { IntentLink } from "../../components/ui/IntentLink";
 import { ScoreLabel } from "../../components/ui/Score";
 import { IconExternal } from "../../components/icons";
@@ -20,9 +21,11 @@ export const DiscoveryItem = memo(function DiscoveryItem({ item, read = false, o
     <article className="relative min-w-0 lg:card lg:card-hover lg:px-[18px] lg:pb-[14px] lg:pt-[15px]" data-item-id={item.id}>
       <header className="flex min-h-[18px] flex-wrap items-center gap-x-2 gap-y-1 text-[12.5px] leading-[18px] text-ink-4">
         <SourceLine item={item} className="text-ink-4" />
+        {item.selected && <SelectedBadge />}
         {item.category && <span className="shrink-0">{CATEGORY_LABELS[item.category]}</span>}
         <Badge tone={item.material === "body" ? "ok" : "neutral"} title={material.hint}>{material.label}</Badge>
         {arrival && <Badge tone="amber" title={arrival.hint}>{arrival.label}</Badge>}
+        {item.search && <Badge tone="accent" title={SEARCH_EVIDENCE.hint}>{SEARCH_EVIDENCE.label}</Badge>}
         <span className="ml-auto flex shrink-0 items-center gap-1.5 pl-2">
           <ScoreLabel score={item.score} compact />
           <span className="relative z-10 -my-1 inline-flex">
@@ -46,6 +49,11 @@ export const DiscoveryItem = memo(function DiscoveryItem({ item, read = false, o
           原文 <IconExternal size={12} />
         </a>
       </p>
+      {item.search && (
+        <p className="mt-1 break-words text-[12px] text-ink-4" title={SEARCH_EVIDENCE.hint}>
+          {SEARCH_EVIDENCE.label} · {SEARCH_EVIDENCE.providers[item.search.provider] ?? item.search.provider} · 查询：{item.search.query}
+        </p>
+      )}
 
       {(item.reason || item.researchQuestion) && (
         <dl className="mt-2.5 space-y-1.5 rounded-control bg-bg-sunk px-3 py-2 text-[13px] leading-[1.65] dark:bg-bg-muted/60 lg:mt-3">

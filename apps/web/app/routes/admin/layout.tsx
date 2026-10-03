@@ -3,7 +3,7 @@ import { SITE } from "@aihot/industry/site";
 import { motion } from "motion/react";
 import { NavLink, Outlet, useLocation, useNavigation, type ShouldRevalidateFunction } from "react-router";
 import type { Route } from "./+types/layout";
-import { RingMark } from "../../components/Logo";
+import { Wordmark } from "../../components/Logo";
 import { NavigationProgress } from "../../components/shell/Chrome";
 import type { AdminMe, AdminNavCounts } from "@aihot/contracts/admin";
 import { Toaster } from "../../features/admin/toast";
@@ -27,6 +27,7 @@ const NAV: Array<{ group: string; items: Array<{ to: string; label: string; coun
     items: [
       { to: "/admin/content", label: "内容诊断" },
       { to: "/admin/sources", label: "信源", count: "sources", tone: "bad" },
+      { to: "/admin/wechat", label: "微信群聊" },
       ...(FEATURES.codexResetMonitor ? [{ to: "/admin/monitor", label: "Codex 重置", count: "monitor" as const, tone: "accent" as const }] : []),
       { to: "/admin/feedback", label: "反馈", count: "feedback", tone: "accent" },
     ],
@@ -69,8 +70,8 @@ export default function AdminLayout({ loaderData }: Route.ComponentProps) {
       <NavigationProgress active={navigation.state === "loading"} />
       <aside className="sticky top-0 hidden h-dvh w-[216px] shrink-0 flex-col border-r border-line bg-bg-sunk/50 px-3 py-4 lg:flex">
         <a href="/" className="mb-5 flex items-center gap-2 px-2">
-          <RingMark className="size-6 text-accent" />
-          <span className="text-[15px] font-semibold tracking-tight text-ink">{SITE.name} 后台</span>
+          <Wordmark size={18} className="text-ink" />
+          <span className="text-[14px] font-semibold text-ink-3">后台</span>
         </a>
         <nav className="flex-1 space-y-4 overflow-y-auto">
           {NAV.map((g) => (
@@ -97,8 +98,8 @@ export default function AdminLayout({ loaderData }: Route.ComponentProps) {
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="sticky top-0 z-40 border-b border-line bg-bg/85 backdrop-blur lg:hidden">
           <div className="flex items-center gap-2 px-4 pt-3">
-            <RingMark className="size-5 text-accent" />
-            <span className="text-[14px] font-semibold text-ink">{SITE.name} 后台</span>
+            <Wordmark size={16} className="text-ink" />
+            <span className="text-[13px] font-semibold text-ink-3">后台</span>
             {me.dev && <span className="rounded bg-amber/15 px-1.5 text-[11px] font-medium text-amber">开发</span>}
           </div>
           <nav className="no-scrollbar flex gap-1 overflow-x-auto px-3 py-2">

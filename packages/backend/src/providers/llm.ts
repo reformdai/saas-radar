@@ -152,7 +152,7 @@ export function escapeControlCharsInStrings(json: string): string {
   return out;
 }
 
-function isConnectFailure(error: unknown): boolean {
+export function isConnectFailure(error: unknown): boolean {
   const code = (error as { cause?: { code?: string } })?.cause?.code ?? (error as { code?: string })?.code;
   return ["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN", "UND_ERR_CONNECT_TIMEOUT", "ECONNRESET_BEFORE_SEND", "CERT_HAS_EXPIRED"].includes(code ?? "");
 }

@@ -7,6 +7,7 @@ import { sweepUnprocessed } from "@aihot/backend/jobs/content";
 import { translatePending } from "@aihot/backend/editorial/translate";
 import { adaptIntervals, scheduleDueSources } from "@aihot/backend/sources/collect";
 import { scheduleMpReconcile } from "@aihot/backend/sources/mp";
+import { runActiveSearch } from "@aihot/backend/sources/search";
 import { refreshSourceIcons } from "@aihot/backend/sources/icons";
 import { computeHotRanking, snapshotHeat } from "@aihot/backend/events/hot";
 import { refreshStoryStatuses } from "@aihot/backend/events/digest";
@@ -79,6 +80,10 @@ export const SCHEDULES: Scheduled[] = [
         // WeChat official accounts (paid), each once per its interval.
         { name: "sources.mp-reconcile", cron: "*/15 * * * *", run: () => scheduleMpReconcile() },
       ]
+    : []),
+  // Active search (paid, daily quota and monthly credits in industry/search.ts): only when switched on with a key.
+  ...(collecting && process.env.TAVILY_SEARCH_ENABLED === "true" && credential("collectors", "TAVILY_API_KEY")
+    ? [{ name: "search.active", cron: "30 6 * * *", missed: "once" as const, run: () => runActiveSearch() }]
     : []),
   // Codex reset monitor: checked every minute, scanned every 5 (every 3 while hot). It reads X through
   // SocialData, so without that key there is nothing to run.

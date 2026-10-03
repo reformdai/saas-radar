@@ -4,6 +4,8 @@ import { timingSafeEqual } from "node:crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { credential } from "@aihot/backend/config";
 import { IngestError, ingestItems } from "@aihot/backend/ingest/items";
+import { receiveWechat, wechatStatus } from "@aihot/backend/wechat/store";
+import { ZodError } from "zod";
 
 
 const PLACEHOLDER = /^(|changeme|change-me|placeholder|xxx+|todo|test|dev|your[-_]?token.*)$/i;
@@ -33,6 +35,25 @@ function unauthorized(reply: FastifyReply) {
 }
 
 export function registerIngest(app: FastifyInstance) {
+  app.get("/api/ingest/wechat/status", async (req, reply) => {
+    reply.header("Cache-Control", "no-store");
+    if (!authorized(req)) return unauthorized(reply);
+    try { return { groups: await wechatStatus((req.query as Record<string, unknown>).account) }; }
+    catch (error) {
+      return reply.code(error instanceof ZodError ? 400 : 503).send({ ok: false, error: "群聊状态暂不可用，请检查参数与数据库迁移" });
+    }
+  });
+  app.post("/api/ingest/wechat", async (req, reply) => {
+    reply.header("Cache-Control", "no-store");
+    if (!authorized(req)) return unauthorized(reply);
+    if (limited(`wechat:${req.ip}`, 600)) return reply.code(429).header("Retry-After", "60").send({ ok: false, error: "rate limited" });
+    try { return await receiveWechat(req.body); }
+    catch (error) {
+      const invalid = error instanceof ZodError || (error as { statusCode?: number }).statusCode === 400;
+      // Never log query parameters or the DB exception's message: it can contain chat text.
+      return reply.code(invalid ? 400 : 503).send({ ok: false, error: invalid ? "群聊上报格式无效" : "群聊接收暂不可用，请检查数据库迁移" });
+    }
+  });
   app.post("/api/ingest/items", async (req, reply) => {
     reply.header("Cache-Control", "no-store");
     if (!authorized(req)) return unauthorized(reply);

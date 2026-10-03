@@ -1,13 +1,14 @@
-// 今日发现: every selected report, newest discovery first. `discovered_at` is when the site first stored
-// the material (articles.discovered_at, copied at publish time), not when it was selected: analysis can
-// select it later, and a release gate opens it later still. Old material keeps its place by discovery
-// and says how it arrived (first import, late, backfill); the timeline, heat and pushes are unchanged.
+// 今日发现: every listed report, selected or not, newest discovery first. `discovered_at` is when the
+// site first stored the material (articles.discovered_at, copied at publish time), not when it was
+// analysed: a report appears once analysis made it eligible, and a selected one once its release gate
+// opens. Old material keeps its place by discovery and says how it arrived (first import, late,
+// backfill) and, when the site's own search found it, the query; the timeline, heat and pushes are unchanged.
 import type { DiscoveriesResponse, DiscoveryArrival, DiscoveryItem, MaterialStatus } from "@aihot/contracts/site";
 import type { CategoryKey } from "@aihot/contracts/taxonomy";
 import { sql } from "../db.ts";
 import { decodeCursor, encodeCursor, InvalidCursorError, queryBinding } from "../lib/cursor.ts";
 import { categoryCondition, ITEM_COLUMNS, ITEM_FROM, toFeedItemSummary, type ItemRow } from "./items.ts";
-import { pendingReleaseCondition, selectedCondition } from "./scope.ts";
+import { listedCondition, pendingReleaseCondition } from "./scope.ts";
 
 interface DiscoveryRow extends ItemRow {
   body_status: string;
@@ -15,6 +16,14 @@ interface DiscoveryRow extends ItemRow {
   has_excerpt: boolean;
   backfill_reason: string | null;
   research_question: string | null;
+  search: { provider?: unknown; query?: unknown } | null;
+}
+
+/** The search that found the material (raw.search, written by sources/search.ts), when it is well formed. */
+export function searchEvidence(raw: { provider?: unknown; query?: unknown } | null): DiscoveryItem["search"] {
+  const provider = typeof raw?.provider === "string" ? raw.provider.trim() : "";
+  const query = typeof raw?.query === "string" ? raw.query.replace(/\s+/g, " ").trim() : "";
+  return provider && query ? { provider: provider.slice(0, 40), query: query.slice(0, 200) } : null;
 }
 
 /** What was fetched of the original. `ok` without stored text (a failed write) counts as no body. */
@@ -39,7 +48,9 @@ function toDiscoveryItem(row: DiscoveryRow): DiscoveryItem {
     originalUrl: row.url,
     material: materialStatus(row),
     arrival: arrivalOf(row),
-    researchQuestion: row.selected && question ? question.slice(0, 200) : null,
+    // A lead for the reader to check, not a reason to read, so it shows whether or not the item was selected.
+    researchQuestion: question ? question.slice(0, 200) : null,
+    search: searchEvidence(row.search),
   };
 }
 
@@ -68,16 +79,18 @@ export function readDiscoveryCursor(cursor: string, q: DiscoveriesQuery): { d: n
 
 export async function loadDiscoveries(q: DiscoveriesQuery): Promise<Omit<DiscoveriesResponse, "generatedAt">> {
   const now = q.now ?? new Date();
-  const limit = Math.min(Math.max(q.limit ?? 20, 1), 40);
+  // Only a whole number reaches LIMIT; the site route refuses anything else before it gets here.
+  const limit = Number.isInteger(q.limit) ? Math.min(Math.max(q.limit!, 1), 40) : 20;
   const category = q.category ?? null;
   const after = q.cursor ? readDiscoveryCursor(q.cursor, q) : null;
   const [rows, [pending]] = await Promise.all([
     sql<DiscoveryRow[]>`
       SELECT ${ITEM_COLUMNS}, a.body_status, (coalesce(a.body_text, '') <> '' OR a.x_post IS NOT NULL) AS has_body,
-             coalesce(a.excerpt, '') <> '' AS has_excerpt, a.backfill_reason, an.output->>'researchQuestion' AS research_question
+             coalesce(a.excerpt, '') <> '' AS has_excerpt, a.backfill_reason, an.output->>'researchQuestion' AS research_question,
+             CASE WHEN jsonb_typeof(a.raw->'search') = 'object' THEN a.raw->'search' END AS search
       ${ITEM_FROM}
       LEFT JOIN analyses an ON an.id = p.analysis_id
-      WHERE ${selectedCondition(now)} ${categoryCondition(category)}
+      WHERE ${listedCondition(now)} ${categoryCondition(category)}
         ${after ? sql`AND (p.discovered_at, p.article_id) < (${new Date(after.d)}, ${after.i})` : sql``}
       ORDER BY p.discovered_at DESC, p.article_id DESC
       LIMIT ${limit + 1}`,

@@ -26,7 +26,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 export function meta({ loaderData }: Route.MetaArgs) {
   return pageMeta({
     title: "今日发现",
-    description: "按本站发现时间排列的精选材料，标明原文发表时间、材料获取状态和待调查问题。",
+    description: "按本站发现时间排列的全部收录材料，标出精选，写明原文发表时间、材料获取状态和待调查问题。",
     path: "/discover",
     noindex: !!loaderData?.paged,
   });
@@ -67,15 +67,15 @@ export default function DiscoverPage() {
     <div className="pb-6">
       <h1 className="pb-2 pt-5 text-[22px] font-bold text-ink lg:pt-0 lg:text-[24px] lg:font-semibold">今日发现</h1>
       <p className="mb-4 max-w-[680px] text-[13px] leading-[1.7] text-ink-3">
-        新发现的精选线索，按发现时间排列；旧文也可值得读。近期动态请看<Link to="/" className="text-accent hover:underline">精选</Link>。
+        分析完成的全部收录材料，按本站发现时间排列，旧文也在内。标“精选”的过了精选门槛，附推荐理由和待调查问题；其余只是收录，没有推荐理由，值不值得看由你判断。只看精选请到<Link to="/" className="text-accent hover:underline">精选</Link>。
       </p>
       <CategoryTabs base="/discover" category={category} firstParty={false} layoutId="discover-category" className="mb-4" />
       <p role="status" aria-live="polite" className="mb-2 min-h-5 text-[12px] text-ink-4">{busy ? "正在加载…" : ""}</p>
       <div aria-busy={busy} className={busy ? "opacity-60" : ""}>
       {days.length === 0 ? (
         <div className="lg:card">
-          <EmptyState title={category ? "这个分类还没有入选的发现" : "还没有入选的发现"}>
-            {category ? <Link to="/discover" className="text-accent hover:underline">查看全部发现</Link> : "信源抓取和分析完成后，入选的材料会出现在这里。"}
+          <EmptyState title={category ? "这个分类还没有收录的发现" : "还没有收录的发现"}>
+            {category ? <Link to="/discover" className="text-accent hover:underline">查看全部发现</Link> : "信源抓取并分析完成后，收录的材料会出现在这里，不论是否入选精选。"}
           </EmptyState>
         </div>
       ) : (

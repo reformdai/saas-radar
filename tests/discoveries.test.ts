@@ -1,7 +1,7 @@
-// 今日发现 (publication/discoveries.ts): selected, public, released items newest discovery first, old
-// material included and labelled by how it arrived, stable keyset pages, what was fetched of the
-// original, and the open question apart from the reason. Fixtures are discovered in 2098 so they lead
-// the list whatever else the shared test database holds.
+// 今日发现 (publication/discoveries.ts): listed (public, eligible, released) items newest discovery
+// first, selected or not, old material included and labelled by how it arrived, stable keyset pages,
+// what was fetched of the original, and the open question apart from the reason. Fixtures are
+// discovered in 2098 so they lead the list whatever else the shared test database holds.
 import { tag } from "./setup.ts";
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
@@ -35,6 +35,7 @@ interface Fixture {
   minute: number;
   category?: "growth" | "products";
   selected?: boolean;
+  eligible?: boolean;
   visibility?: string;
   visibleAfter?: Date;
   publishedAt?: Date | null;
@@ -43,6 +44,7 @@ interface Fixture {
   body?: string | null;
   excerpt?: string | null;
   question?: string;
+  raw?: Record<string, unknown>;
 }
 
 async function item(name: string, f: Fixture): Promise<string> {
@@ -52,9 +54,10 @@ async function item(name: string, f: Fixture): Promise<string> {
   const published = f.publishedAt === undefined ? discovered : f.publishedAt;
   const backfill = f.backfillReason !== undefined && f.backfillReason !== null;
   const timeline = backfill && published ? published : discovered;
-  await sql`INSERT INTO articles (id, source_id, identity_key, url, title, published_at, discovered_at, timeline_at, backfill, backfill_reason, body_status, body_text, excerpt)
+  await sql`INSERT INTO articles (id, source_id, identity_key, url, title, published_at, discovered_at, timeline_at, backfill, backfill_reason, body_status, body_text, excerpt, raw)
     VALUES (${id}, ${SOURCE}, ${id}, ${`https://example.test/${id}`}, ${id}, ${published}, ${discovered}, ${timeline}, ${backfill}, ${f.backfillReason ?? null},
-      ${f.bodyStatus ?? "ok"}, ${f.body === undefined ? "Full body text." : f.body}, ${f.excerpt === undefined ? "Feed summary." : f.excerpt})`;
+      ${f.bodyStatus ?? "ok"}, ${f.body === undefined ? "Full body text." : f.body}, ${f.excerpt === undefined ? "Feed summary." : f.excerpt},
+      ${f.raw ? sql.json(f.raw as never) : null})`;
   const [analysis] = await sql<{ id: number }[]>`
     INSERT INTO analyses (article_id, input_revision, origin, relevance, category, title_zh, summary_zh, reason_zh, score, selected, output)
     VALUES (${id}, 1, 'rule', 'pass', ${f.category ?? "growth"}, ${`标题 ${name}`}, '摘要', '理由', 80, ${f.selected ?? true}, ${sql.json(f.question ? { researchQuestion: f.question } : {})})
@@ -63,7 +66,7 @@ async function item(name: string, f: Fixture): Promise<string> {
   await sql`INSERT INTO publications (article_id, analysis_id, title, summary, reason, category, source_id, channel, url, published_at, discovered_at, timeline_at, sort_at,
       backfill, eligible, selected, selected_ready_at, visible_after, visibility, tags)
     VALUES (${id}, ${analysis!.id}, ${`标题 ${name}`}, '摘要', ${selected ? "理由" : null}, ${f.category ?? "growth"}, ${SOURCE}, 'news', ${`https://example.test/${id}`}, ${published},
-      ${discovered}, ${timeline}, ${timeline}, ${backfill}, true, ${selected}, ${selected ? PAST : null}, ${selected ? (f.visibleAfter ?? PAST) : null},
+      ${discovered}, ${timeline}, ${timeline}, ${backfill}, ${f.eligible ?? true}, ${selected}, ${selected ? PAST : null}, ${selected ? (f.visibleAfter ?? PAST) : null},
       ${f.visibility ?? "public"}, ${[]})`;
   return id;
 }
@@ -71,19 +74,24 @@ async function item(name: string, f: Fixture): Promise<string> {
 /** The fixture ids among a page, in order. */
 const mine = (items: Array<{ id: string }>) => items.map((i) => i.id).filter((id) => ids.includes(id));
 
-test("selected public items lead by discovery time; old material keeps its source time and says how it arrived", async () => {
+test("listed items lead by discovery time, selected or not; old material keeps its source time and says how it arrived", async () => {
   const twoYearsAgo = new Date(BASE - 2 * 365 * 86_400_000);
   const live = await item("live", { minute: 10, question: "  作者的收入是毛收入还是净收入？  " });
   const imported = await item("imported", { minute: 20, publishedAt: twoYearsAgo, backfillReason: "first-import" });
   const late = await item("late", { minute: 30, publishedAt: new Date(BASE - 10 * 86_400_000), backfillReason: "stale-on-discovery" });
-  await item("unselected", { minute: 40, selected: false, question: "不应出现？" });
+  const unselected = await item("unselected", { minute: 40, selected: false, question: "  他说的留存率怎么算？  " });
   await item("withdrawn", { minute: 50, visibility: "withdrawn" });
+  await item("withdrawn-unselected", { minute: 51, selected: false, visibility: "withdrawn", question: "撤回后不应出现？" });
+  await item("summary-only", { minute: 52, selected: false, visibility: "summary-only", question: "非公开不应出现？" });
+  await item("ineligible", { minute: 53, selected: false, eligible: false });
+  const archived = await item("archived", { minute: 54, selected: false, publishedAt: new Date(BASE - 400 * 86_400_000), backfillReason: "backfill" });
   const gate = new Date(BASE + 90 * 60_000);
   const gated = await item("gated", { minute: 60, visibleAfter: gate });
 
   const now = new Date(BASE + 61 * 60_000);
   const page = await loadDiscoveries({ now, limit: 40 });
-  assert.deepEqual(mine(page.items), [late, imported, live], "newest discovery first; unselected, withdrawn and gated items stay out");
+  assert.deepEqual(mine(page.items), [archived, unselected, late, imported, live],
+    "newest discovery first, unselected and backfilled material included; withdrawn, non-public, ineligible and gated items stay out");
   assert.equal(page.refreshAt, gate.toISOString(), "the page expires when the gated item opens");
 
   const byId = new Map(page.items.map((i) => [i.id, i]));
@@ -94,9 +102,16 @@ test("selected public items lead by discovery time; old material keeps its sourc
   assert.equal(byId.get(live)!.reason, "理由", "the reason stays its own field");
   assert.equal(byId.get(imported)!.researchQuestion, null);
   assert.equal(byId.get(live)!.originalUrl, `https://example.test/${live}`);
+  assert.equal(byId.get(live)!.selected, true);
+
+  const plain = byId.get(unselected)!;
+  assert.deepEqual([plain.selected, plain.reason], [false, null], "an unselected item carries no reason");
+  assert.equal(plain.researchQuestion, "他说的留存率怎么算？", "its open question is a lead for the reader, kept whether or not it was selected");
+  assert.equal(plain.summary, "摘要");
+  assert.deepEqual([byId.get(archived)!.arrival, byId.get(archived)!.selected], ["backfill", false]);
 
   const opened = await loadDiscoveries({ now: new Date(gate.getTime() + 1), limit: 40 });
-  assert.deepEqual(mine(opened.items), [gated, late, imported, live], "a gated item appears at its discovery place once released");
+  assert.deepEqual(mine(opened.items), [gated, archived, unselected, late, imported, live], "a gated item appears at its discovery place once released");
 });
 
 test("the material status follows what was stored, not the source's licence", async () => {
@@ -107,6 +122,22 @@ test("the material status follows what was stored, not the source's licence", as
   const page = await loadDiscoveries({ now: new Date(BASE + 200 * 60_000), limit: 40 });
   const status = new Map(page.items.map((i) => [i.id, i.material]));
   assert.deepEqual([body, summary, failed, bare].map((id) => status.get(id)), ["body", "excerpt", "excerpt", "title"]);
+});
+
+test("material the site's own search found carries its provider and query; other material carries none", async () => {
+  const query = `reddit r/SaaS annual plan discount churn ${"x".repeat(300)}`;
+  const searched = await item("searched", { minute: 150, raw: { search: { provider: "tavily", query: `  ${query}  `, lane: "reddit", depth: "basic" } } });
+  const late = await item("searched-late", { minute: 151, publishedAt: new Date(BASE - 10 * 86_400_000), backfillReason: "stale-on-discovery",
+    raw: { search: { provider: "tavily", query: "old founder post" } } });
+  const broken = await item("searched-broken", { minute: 152, raw: { search: "not an object" } });
+  const plain = await item("not-searched", { minute: 153, raw: { feed: "rss" } });
+  const page = await loadDiscoveries({ now: new Date(BASE + 200 * 60_000), limit: 40 });
+  const byId = new Map(page.items.map((i) => [i.id, i]));
+  assert.deepEqual(byId.get(searched)!.search, { provider: "tavily", query: query.slice(0, 200) }, "trimmed and capped");
+  assert.equal(byId.get(searched)!.arrival, "live", "a search is evidence, not an arrival of its own");
+  assert.deepEqual([byId.get(late)!.arrival, byId.get(late)!.search?.query], ["late", "old founder post"], "the timeline rule still says it is old");
+  assert.equal(byId.get(broken)!.search, null);
+  assert.equal(byId.get(plain)!.search, null);
 });
 
 test("keyset pages neither repeat nor skip items that share a discovery time", async () => {
@@ -136,10 +167,30 @@ test("the site route serves the list and refuses a malformed cursor", async () =
   assert.equal((await app.inject({ method: "GET", url: `/api/site/discoveries?cursor=dc1.${Buffer.from("[]").toString("base64url")}` })).statusCode, 400);
 });
 
+test("the site route takes a whole-number limit, defaults to 20 and refuses any other", async () => {
+  for (let i = 0; i < 41; i++) await item(`limit-${i}`, { minute: 800 + i, category: "products" });
+  const count = async (query: string) => {
+    const res = await app.inject({ method: "GET", url: `/api/site/discoveries${query}` });
+    assert.equal(res.statusCode, 200, query);
+    return res.json().items.length as number;
+  };
+  assert.equal(await count(""), 20);
+  assert.equal(await count("?limit=3"), 3);
+  assert.equal(await count("?limit=-5"), 1, "below the range is the minimum");
+  assert.equal(await count("?limit=100"), 40, "above the range is the maximum");
+  for (const limit of ["1.5", "abc", "Infinity", "1e400", "NaN"]) {
+    const res = await app.inject({ method: "GET", url: `/api/site/discoveries?limit=${limit}` });
+    assert.equal(res.statusCode, 400, limit);
+    assert.equal(res.json().code, "invalid_request");
+  }
+  const direct = await loadDiscoveries({ now: new Date(BASE + 900 * 60_000), limit: 1.5 });
+  assert.equal(direct.items.length, 20, "a direct caller's fraction falls back to the default instead of reaching SQL");
+});
+
 test("category filtering applies before pagination and rejects another category's cursor", async () => {
-  await item("category-product", { minute: 602, category: "products" });
+  await item("category-product", { minute: 602, category: "products", selected: false });
   const newer = await item("category-growth-new", { minute: 601 });
-  const older = await item("category-growth-old", { minute: 600 });
+  const older = await item("category-growth-old", { minute: 600, selected: false });
   const now = new Date(BASE + 700 * 60_000);
   const first = await loadDiscoveries({ category: "growth", limit: 1, now });
   assert.equal(first.items[0]!.id, newer);

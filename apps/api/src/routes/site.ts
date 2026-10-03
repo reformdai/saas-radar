@@ -105,7 +105,9 @@ export function registerSite(app: FastifyInstance) {
     const q = looseQuery(req);
     const category = q.category ?? null;
     if (category !== null && !isCategoryKey(category)) throw new BadRequest("invalid category");
-    const limit = Math.min(Math.max(Number(q.limit) || 20, 1), 40);
+    const requested = Number(q.limit ?? 20);
+    if (!Number.isInteger(requested)) throw new BadRequest("invalid limit");
+    const limit = Math.min(Math.max(requested || 20, 1), 40);
     const data = await loadDiscoveries({ category: category as CategoryKey | null, cursor: q.cursor || null, limit });
     const cc = cacheUntil(reply, 60, data.refreshAt);
     return sendJsonWithEtag(req, reply, { ...data, generatedAt: new Date().toISOString() }, { etagPrefix: "dc", cacheControl: cc, etagOf: data });

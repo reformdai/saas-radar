@@ -155,15 +155,24 @@ export const ARRIVAL_LABELS: Record<Exclude<DiscoveryArrival, "live">, { label: 
   backfill: { label: "历史回灌", hint: "作为历史资料补进来的文章，不是当天的新消息。" },
 };
 
-/** A selected item on 今日发现, listed by when the site first found it. */
+/** Material found by the site's own daily search (sources/search.ts), shown with the query that found it. */
+export const SEARCH_EVIDENCE = {
+  label: "主动搜索",
+  hint: "本站每天按固定或模型生成的检索词主动搜到的线索。摘要来自搜索结果，不等于读过原文；搜索结果的排序不是本站评分。",
+  providers: { tavily: "Tavily" } as Record<string, string>,
+};
+
+/** A listed item on 今日发现, selected or not, listed by when the site first found it. */
 export interface DiscoveryItem extends FeedItemSummary {
-  /** When the site first found the material (not when it was selected; that can be later). */
+  /** When the site first found the material (not when it was analysed or selected; that can be later). */
   discoveredAt: string;
   originalUrl: string;
   material: MaterialStatus;
   arrival: DiscoveryArrival;
-  /** One open question to look into next, written apart from the reason; null when the model gave none. */
+  /** One open question to look into next, written apart from the reason; null when the model gave none. Shown selected or not: a lead to check, not a reason to read. */
   researchQuestion: string | null;
+  /** The search that first found it (provider key and query); null for material from the sources. */
+  search: { provider: string; query: string } | null;
 }
 
 export interface DiscoveriesResponse {

@@ -1,4 +1,4 @@
-// Paid requests (models, SocialData, Jina, Dajiala) go through here.
+// Paid requests (models, SocialData, Jina, Dajiala, Tavily) go through here.
 //
 // 1. A logical request has a stable key bound to task, input revision, provider, model, prompt and config.
 // 2. Before calling, a placeholder row and an attempt row are persisted; budgets count attempts.
@@ -59,6 +59,11 @@ export interface ReceiptRequest {
   requestSummary?: Record<string, unknown>;
   /** Distinguishes an explicit re-run (e.g. admin "re-evaluate") from recovery of the same request. */
   attemptTag?: string;
+  /**
+   * Extra limits (e.g. calendar quotas) checked under the service's budget lock, after the budget and
+   * before the attempt is recorded; throws BudgetExceededError to refuse the attempt.
+   */
+  guard?: (tx: Db) => Promise<void>;
 }
 
 export interface ReceiptResult {
@@ -128,12 +133,14 @@ export async function paidRequest(req: ReceiptRequest, call: () => Promise<CallO
       if (existing.status === "unknown") return { kind: "unknown" as const, row: existing };
       // failed: the provider did not take the request, or its answer was unusable; a new attempt is allowed.
       await checkBudget(tx, req.service);
+      await req.guard?.(tx);
       const [r] = await tx<{ attempts: number }[]>`
         UPDATE receipts SET status = 'pending', attempts = attempts + 1, error = NULL, updated_at = now() WHERE id = ${existing.id} RETURNING attempts`;
       const attemptId = await startAttempt(tx, existing.id, r!.attempts, req);
       return { kind: "call" as const, id: existing.id, attemptId };
     }
     await checkBudget(tx, req.service);
+    await req.guard?.(tx);
     const [row] = await tx<{ id: number }[]>`
       INSERT INTO receipts (logical_key, service, model, purpose, subject, status, request, attempts)
       VALUES (${logicalKey}, ${req.service}, ${req.model ?? null}, ${req.purpose}, ${req.subject ?? null}, 'pending',

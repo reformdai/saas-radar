@@ -44,6 +44,7 @@ export default [
     route("admin/content", "routes/admin/content.tsx"),
     route("admin/content/:id", "routes/admin/content-item.tsx"),
     route("admin/sources", "routes/admin/sources.tsx"),
+    route("admin/wechat", "routes/admin/wechat.tsx"),
     route("admin/sources/new", "routes/admin/source-new.tsx"),
     route("admin/sources/:id", "routes/admin/source.tsx"),
     route("admin/monitor", "routes/admin/monitor.tsx"),

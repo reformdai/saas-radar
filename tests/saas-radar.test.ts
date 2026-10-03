@@ -28,12 +28,16 @@ const HN = {
   ],
 };
 const longPost = `I run a small SaaS for dentists. ${"We tried cold email, SEO and partnerships before anything worked. ".repeat(8)}`;
-const reddit = (content: string, id: string) =>
+const shortPost = "Our dental clinic exports insurance claim reports by hand every week. Is there a tool for this? Budget is $50 a month.";
+const reddit = (content: string, id: string, summary = "") =>
   `<entry><id>t3_${id}</id><title>How I got my first ${id} customers</title><updated>2026-10-02T10:00:00+00:00</updated>` +
-  `<link href="https://www.reddit.com/r/SaaS/comments/${id}/post/"/><content type="html">${escapeXml(content)}</content></entry>`;
+  `<link href="https://www.reddit.com/r/SaaS/comments/${id}/post/"/>` +
+  (summary ? `<summary>${escapeXml(summary)}</summary>` : "") +
+  `<content type="html">${escapeXml(content)}</content></entry>`;
 const REDDIT = `<feed xmlns="http://www.w3.org/2005/Atom"><id>urn:test</id><title>search</title><updated>2026-10-02T10:00:00+00:00</updated>` +
   reddit(`<div class="md"><p>${longPost}</p></div> submitted by /u/founder [link] [comments]`, "long") +
-  reddit(`<div class="md"><p>Anyone else stuck at zero?</p></div> submitted by /u/someone [link] [comments]`, "short") +
+  reddit(`<div class="md"><p>${shortPost}</p></div> submitted by /u/someone [link] [comments]`, "short") +
+  reddit(`<div class="md"><p>Anyone else stuck at zero?</p></div>`, "summarized", "The feed's own summary.") +
   `</feed>`;
 
 const server = http.createServer((req, res) => {
@@ -81,9 +85,16 @@ test("a Reddit search feed keeps a full self post as its body and a short one as
   const { candidates } = await fetchRss({ ...feed, config: { ...feed.config, feedUrl: `${base}/reddit` } } as never);
   const long = candidates.find((c) => c.url.includes("/long/"))!;
   const short = candidates.find((c) => c.url.includes("/short/"))!;
+  const summarized = candidates.find((c) => c.url.includes("/summarized/"))!;
   assert.equal(long.bodyStatus, "ok");
   assert.ok(long.bodyText!.includes("cold email"));
+  assert.equal(long.excerpt, null, "a full body needs no excerpt");
   assert.equal(short.bodyStatus, "pending");
+  assert.equal(short.bodyText, null);
+  assert.ok(short.excerpt!.startsWith(shortPost), "the short post's words are kept as the summary");
+  assert.equal(materialStatus({ body_status: short.bodyStatus, has_body: !!short.bodyText, has_excerpt: !!short.excerpt }), "excerpt");
+  assert.equal(summarized.excerpt, "The feed's own summary.", "the entry's own summary comes first");
+  assert.equal(summarized.bodyStatus, "pending");
   assert.equal(long.publishedAt!.toISOString(), "2026-10-02T10:00:00.000Z");
 });
 

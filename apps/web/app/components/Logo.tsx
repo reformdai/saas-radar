@@ -1,12 +1,29 @@
-// The site's wordmark (its name from industry/site.ts, set in type) and a small ring mark used as the
-// loader. A site with its own logo can replace Wordmark here.
-import { SITE } from "@aihot/industry/site";
+// The site's logo (a radar over the sea, the same mark as industry/brand/logo.svg) and a small ring
+// mark used as the loader.
 
+/** Radar sweep over waves; the amber dot is a signal it picked up. */
+export function RadarMark({ className = "" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 48 48" className={className} aria-hidden="true">
+      <g fill="none" strokeWidth="3.6" strokeLinecap="round">
+        <path d="M6 29A18 18 0 0 1 42 29" stroke="currentColor" />
+        <path d="M14 29A10 10 0 0 1 34 29" className="stroke-accent" />
+        <path d="M5 38.5q4.75-4 9.5 0t9.5 0t9.5 0t9.5 0" className="stroke-accent" />
+      </g>
+      <circle cx="24" cy="29" r="3.2" className="fill-accent" />
+      <circle cx="36.5" cy="14.5" r="4" className="fill-[#e0a43c] dark:fill-[#ffb547]" />
+    </svg>
+  );
+}
+
+/** The mark beside the English logotype "ShipRadar"; the Chinese site name stays in titles, RSS and the rest. */
 export function Wordmark({ size = 22, className = "" }: { size?: number; className?: string }) {
   return (
-    <span className={`inline-flex items-center font-black leading-none tracking-[-0.03em] ${className}`} style={{ fontSize: size }} aria-label={SITE.name} role="img">
-      <span aria-hidden="true" className="mr-[0.3em] inline-block size-[0.42em] rounded-full bg-accent" />
-      <span aria-hidden="true">{SITE.name}</span>
+    <span className={`inline-flex items-center gap-[0.35em] font-black leading-none tracking-[-0.03em] ${className}`} style={{ fontSize: size }} aria-label="ShipRadar" role="img">
+      <RadarMark className="size-[1.6em] shrink-0" />
+      <span aria-hidden="true" className="whitespace-nowrap">
+        Ship<span className="text-accent">Radar</span>
+      </span>
     </span>
   );
 }
