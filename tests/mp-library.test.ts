@@ -183,20 +183,31 @@ test("WeChat pages are spaced across processes, and a verification page pauses t
   const started = Date.now();
   await Promise.all([fetchWechatPage('https://mp.weixin.qq.com/s/pace-1'), fetchWechatPage('https://mp.weixin.qq.com/s/pace-2')]);
   assert.ok(Date.now() - started >= 1000, 'the second request waits for its slot');
-  await assert.rejects(fetchWechatPage('https://mp.weixin.qq.com/s/pace-3', { maxWaitMs: 0 }), /queue is full/, 'a slot too far away is not taken');
+  await assert.rejects(fetchWechatPage('https://mp.weixin.qq.com/s/pace-3', { maxWaitMs: 0 }), /正在排队/, 'a slot too far away is not taken');
   config.wechatPageIntervalSeconds = 0;
   await sql`UPDATE settings SET value = value - 'nextAt' WHERE key = 'wechat_page_pace'`;
-  await assert.rejects(fetchWechatPage('https://mp.weixin.qq.com/s/captcha'), /verification/);
+  await assert.rejects(fetchWechatPage('https://mp.weixin.qq.com/s/captcha'), /验证页/);
   const before = hits;
-  await assert.rejects(fetchWechatPage('https://mp.weixin.qq.com/s/pace-4'), /paused until/);
+  await assert.rejects(fetchWechatPage('https://mp.weixin.qq.com/s/pace-4'), /限流保护.*北京时间/);
   assert.equal(hits, before, 'nothing is requested while paused');
   const pause = async () => (await sql<{ value: { cooldownMs: number } }[]>`SELECT value FROM settings WHERE key = 'wechat_page_pace'`)[0]!.value.cooldownMs;
   assert.equal(await pause(), 3600_000);
   // The pause ends and the block is still there: the next pause is twice as long.
   await sql`UPDATE settings SET value = value || ${sql.json({ coolUntil: new Date(Date.now() - 60_000).toISOString() })} WHERE key = 'wechat_page_pace'`;
   wechat.intercept({ path: '/s/captcha' }).reply(() => { hits++; return { statusCode: 200, data: '<p>当前环境异常，完成验证后即可继续访问</p>' }; });
-  await assert.rejects(fetchWechatPage('https://mp.weixin.qq.com/s/captcha'), /verification/);
+  await assert.rejects(fetchWechatPage('https://mp.weixin.qq.com/s/captcha'), /验证页/);
   assert.equal(await pause(), 7200_000);
+  // An archive batch held back by the protection is paused, not failed, and says why in plain words.
+  const id = `${source}-paused`;
+  await sql`INSERT INTO sources (id, name, kind, tier, participation_mode, config, next_fetch_at)
+   VALUES (${id}, '限流中', 'mp_account', 'T2', 'editorial', ${sql.json({ ghid: `gh-${id}` })}, '2100-01-01')`;
+  await upsertMaterial({ sourceId: id, url: `https://mp.weixin.qq.com/s/${id}`, title: '待补', language: 'zh', bodyStatus: 'none', via: 'fetch' });
+  const runId = randomUUID();
+  await sql`INSERT INTO settings (key, value) VALUES (${`mp_archive:${id}`}, ${sql.json({ runId, mode: 'bodies', status: 'queued', offset: '', pages: 0, stored: 0, bodies: 0, failed: 0, listComplete: false, lastReceiptId: null, error: null })})`;
+  await runMpArchive(id, runId, 1);
+  const held = (await archiveState(id))!;
+  assert.equal(held.status, 'paused');
+  assert.match(held.error!, /限流保护.*北京时间/);
  } finally {
   config.wechatPageIntervalSeconds = 0;
   setGlobalDispatcher(previous); await mock.close();

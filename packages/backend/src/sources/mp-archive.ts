@@ -10,7 +10,7 @@ import { identityKeyForUrl } from "../lib/url.ts";
 import { credential } from "../config.ts";
 import { mpHistory } from "../providers/dajiala.ts";
 import { everyinfraHistory } from "../providers/everyinfra.ts";
-import { fetchWechatPage } from "../providers/wechat-page.ts";
+import { fetchWechatPage, WechatPausedError } from "../providers/wechat-page.ts";
 import { enqueue, QUEUES } from "../jobs/queue.ts";
 
 const stateKey = (id: string) => `mp_archive:${id}`;
@@ -136,7 +136,9 @@ export async function runMpArchive(sourceId: string, runId: string, maxRequests:
     if (state.status === "running") state.status = "paused"; // Batch limit: continue only on another explicit click.
     await save(sourceId, state);
   } catch (error) {
-    state.status = "error"; state.error = error instanceof Error ? error.message.slice(0, 400) : "归档失败";
+    // Held back by the WeChat rate protection: paused, not failed; another click continues later.
+    state.status = error instanceof WechatPausedError ? "paused" : "error";
+    state.error = error instanceof Error ? error.message.slice(0, 400) : "归档失败";
     await save(sourceId, state);
   } finally {
     state.workingUntil = null;

@@ -14,6 +14,12 @@ const COOLDOWN_MS = 3600_000;
 const MAX_COOLDOWN_MS = 24 * 3600_000;
 const PACE_KEY = "wechat_page_pace";
 
+/** Our own protection held a request back (or WeChat just answered with verification): wait, nothing failed. */
+export class WechatPausedError extends Error {}
+
+const beijing = (ms: number) => new Intl.DateTimeFormat("zh-CN", { timeZone: "Asia/Shanghai", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }).format(ms);
+const pausedUntil = (ms: number) => `限流保护：为防止本机 IP 被微信限制，暂停读取文章页到 ${beijing(ms)}（北京时间），到时再点即可继续`;
+
 /**
  * Every WeChat page request, in any process, takes the next free slot: at least the configured interval
  * after the previous one. Too many requests from one address end in verification pages and, kept up,
@@ -25,9 +31,9 @@ async function pace(maxWaitMs: number): Promise<void> {
     const [row] = await tx<{ value: { nextAt?: string; coolUntil?: string } }[]>`SELECT value FROM settings WHERE key = ${PACE_KEY} FOR UPDATE`;
     const now = Date.now();
     const coolUntil = Date.parse(row!.value.coolUntil ?? "");
-    if (coolUntil > now) throw new Error(`WeChat pages paused until ${new Date(coolUntil).toISOString()} after a verification page`);
+    if (coolUntil > now) throw new WechatPausedError(pausedUntil(coolUntil));
     const at = Math.max(now, Date.parse(row!.value.nextAt ?? "") || 0);
-    if (at - now > maxWaitMs) throw new Error("WeChat page queue is full; try again later");
+    if (at - now > maxWaitMs) throw new WechatPausedError("限流保护：读取微信文章页的请求正在排队，稍后再试");
     const interval = config.wechatPageIntervalSeconds * 1000 * (1 + Math.random() / 2);
     await tx`UPDATE settings SET value = value || ${tx.json({ nextAt: new Date(at + interval).toISOString() })}, updated_at = now() WHERE key = ${PACE_KEY}`;
     return at - now;
@@ -35,15 +41,16 @@ async function pace(maxWaitMs: number): Promise<void> {
   if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
 }
 
-async function coolDown(): Promise<void> {
-  await sql.begin(async (tx) => {
+async function coolDown(): Promise<number> {
+  return sql.begin(async (tx) => {
     await tx`INSERT INTO settings (key, value, updated_by) VALUES (${PACE_KEY}, '{}', 'system') ON CONFLICT (key) DO NOTHING`;
     const [row] = await tx<{ value: { coolUntil?: string; cooldownMs?: number } }[]>`SELECT value FROM settings WHERE key = ${PACE_KEY} FOR UPDATE`;
     const now = Date.now();
     const last = Date.parse(row!.value.coolUntil ?? "");
-    if (last > now) return; // Already paused (a concurrent request saw the same block).
+    if (last > now) return last; // Already paused (a concurrent request saw the same block).
     const cooldownMs = now - last < MAX_COOLDOWN_MS ? Math.min((row!.value.cooldownMs ?? COOLDOWN_MS / 2) * 2, MAX_COOLDOWN_MS) : COOLDOWN_MS;
     await tx`UPDATE settings SET value = value || ${tx.json({ coolUntil: new Date(now + cooldownMs).toISOString(), cooldownMs })}, updated_at = now() WHERE key = ${PACE_KEY}`;
+    return now + cooldownMs;
   });
 }
 
@@ -80,13 +87,13 @@ async function fetchOne(articleUrl: string, maxWaitMs: number): Promise<WechatPa
     timeoutMs: 30_000,
     maxBytes: 8 * 1024 * 1024,
   });
-  if (res.status === 403 || res.status === 429) await coolDown();
+  if (res.status === 403 || res.status === 429) throw new WechatPausedError(`微信返回 HTTP ${res.status}；${pausedUntil(await coolDown())}`);
   if (res.status >= 400) throw new Error(`WeChat page HTTP ${res.status}`);
   try {
     return parseWechatPage(res.text(), res.url);
-  } catch (error) {
-    await coolDown(); // Only verification pages throw here.
-    throw error;
+  } catch {
+    // Only verification pages throw here.
+    throw new WechatPausedError(`微信返回了验证页；${pausedUntil(await coolDown())}`);
   }
 }
 
