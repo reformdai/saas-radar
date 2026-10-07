@@ -235,3 +235,23 @@ test("WeChat pages are spaced across processes, and a verification page pauses t
   if (saved[0]) await sql`INSERT INTO settings (key, value) VALUES ('wechat_page_pace', ${sql.json(saved[0].value)})`;
  }
 });
+
+test("research history lists each conversation once, and any of its turns opens the whole conversation", async () => {
+ const { researchHistory, researchThread } = await import('@aihot/backend/research');
+ const owner = `history-${source}`;
+ const [article] = await sql`SELECT id FROM articles WHERE source_id = ${source} ORDER BY created_at LIMIT 1`;
+ const turn = (id: string, question: string, previousId: string | null) => ({ id, owner, articleId: article!.id, question, scope: 'article', status: 'completed', previousId, references: [], citations: [], answer: '答', error: null });
+ const [a, b, c] = [randomUUID(), randomUUID(), randomUUID()];
+ for (const t of [turn(a, '第一问', null), turn(b, '追问', a), turn(c, '另一个问题', null)]) {
+  await sql`INSERT INTO settings (key, value) VALUES (${`research:${t.id}`}, ${sql.json(t)})`;
+ }
+ const history = await researchHistory(owner);
+ assert.equal(history.length, 2);
+ const thread = history.find(h => h.id === b)!;
+ assert.deepEqual([thread.firstQuestion, thread.turns], ['第一问', 2]);
+ assert.ok(history.find(h => h.id === c));
+ assert.deepEqual((await researchThread(a, owner))!.map(t => t.question), ['第一问', '追问']);
+ assert.deepEqual((await researchThread(b, owner))!.map(t => t.question), ['第一问', '追问']);
+ assert.deepEqual(await researchHistory(`someone-else-${source}`), []);
+ assert.equal(await researchThread(a, `someone-else-${source}`), null);
+});

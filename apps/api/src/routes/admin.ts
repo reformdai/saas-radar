@@ -12,7 +12,7 @@ import { banSource, eraseFeedback, feedbackScreenshot, listFeedback, unbanSource
 import { listMonitorEvents, listMonitorPosts, relinkPost, resolveMonitorPost, reviewReceipt, setWithdrawn, updateMonitorEvent } from "@aihot/backend/admin/monitor";
 import { requeueFailedArticles, runsOverview } from "@aihot/backend/admin/runs";
 import { replaceContactQr, setTargetEnabled, settingsOverview, updateBudget } from "@aihot/backend/admin/settings";
-import { researchTurn, askResearch } from "@aihot/backend/research";
+import { researchTurn, askResearch, researchHistory, researchThread } from "@aihot/backend/research";
 import { archiveState, archiveAction } from "@aihot/backend/sources/mp-archive";
 import { createSource, fetchNow, listSources, previewSource, previewStoredSource, sourceDetail, updateSource } from "@aihot/backend/admin/sources";
 import { navCounts } from "@aihot/backend/admin/navigation";
@@ -44,7 +44,9 @@ export function registerAdmin(app: FastifyInstance) {
   app.get("/api/admin/sources/:id/archive", adminHandler(async (req) => ({ state: await archiveState(param(req, "id")) })));
   app.post("/api/admin/sources/:id/archive", adminHandler(async (req, reply, admin) => orNotFound(req, reply, await archiveAction(param(req, "id"), body(req) as never, actorOf(admin)))));
   app.post("/api/admin/research", adminHandler(async (req, _reply, admin) => askResearch(body(req), actorOf(admin), String(req.headers["idempotency-key"] || ""))));
+  app.get("/api/admin/research", adminHandler(async (_req, _reply, admin) => researchHistory(actorOf(admin))));
   app.get("/api/admin/research/:id", adminHandler(async (req, reply, admin) => orNotFound(req, reply, await researchTurn(param(req, "id"), actorOf(admin)))));
+  app.get("/api/admin/research/:id/thread", adminHandler(async (req, reply, admin) => orNotFound(req, reply, await researchThread(param(req, "id"), actorOf(admin)))));
   // Sources (F18)
   app.get("/api/admin/sources", adminHandler(async (req) => {
     const f = q(req);

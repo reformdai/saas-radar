@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import type { ResearchTurn } from "@aihot/contracts/research";
+import type { ResearchThreadSummary, ResearchTurn } from "@aihot/contracts/research";
 import { sql } from "./db.ts";
 import { config } from "./config.ts";
 import { enqueue, QUEUES } from "./jobs/queue.ts";
@@ -11,6 +11,40 @@ const key = (id: string) => `research:${id}`;
 export async function researchTurn(id: string, owner: string): Promise<ResearchTurn | null> {
   const [r] = await sql<{ value: ResearchTurn }[]>`SELECT value FROM settings WHERE key = ${key(id)} AND value->>'owner' = ${owner}`;
   return r?.value ?? null;
+}
+
+/** The whole conversation a turn belongs to, oldest first: earlier turns and any follow-ups after it. */
+export async function researchThread(id: string, owner: string): Promise<ResearchTurn[] | null> {
+  const turn = await researchTurn(id, owner);
+  if (!turn) return null;
+  const thread = [turn];
+  for (let previousId = turn.previousId, i = 0; previousId && i < 50; i++) {
+    const previous = await researchTurn(previousId, owner);
+    if (!previous) break;
+    thread.unshift(previous); previousId = previous.previousId;
+  }
+  for (let i = 0; i < 50; i++) {
+    const [next] = await sql<{ value: ResearchTurn }[]>`
+      SELECT value FROM settings WHERE key LIKE 'research:%' AND value->>'owner' = ${owner} AND value->>'previousId' = ${thread.at(-1)!.id} LIMIT 1`;
+    if (!next) break;
+    thread.push(next.value);
+  }
+  return thread;
+}
+
+/** The owner's conversations, most recently active first; a follow-up continues its conversation. */
+export async function researchHistory(owner: string): Promise<ResearchThreadSummary[]> {
+  const rows = await sql<{ value: ResearchTurn; updated_at: Date; title: string | null }[]>`
+    SELECT s.value, s.updated_at, a.title FROM settings s LEFT JOIN articles a ON a.id = s.value->>'articleId'
+    WHERE s.key LIKE 'research:%' AND s.value->>'owner' = ${owner} ORDER BY s.updated_at DESC LIMIT 500`;
+  const byId = new Map(rows.map((r) => [r.value.id, r]));
+  const continued = new Set(rows.map((r) => r.value.previousId).filter(Boolean));
+  return rows.filter((r) => !continued.has(r.value.id)).map((last) => {
+    let first = last, turns = 1;
+    while (first.value.previousId && byId.has(first.value.previousId) && turns < 50) { first = byId.get(first.value.previousId)!; turns++; }
+    return { id: last.value.id, articleId: last.value.articleId, articleTitle: last.title, firstQuestion: first.value.question,
+      turns, status: last.value.status, updatedAt: last.updated_at.toISOString() };
+  });
 }
 
 /** How often a growing answer is written for the page to read (it polls about as often). */
