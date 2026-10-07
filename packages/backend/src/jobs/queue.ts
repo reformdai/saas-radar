@@ -17,6 +17,8 @@ export interface JobData {
   "events.digest": { storyId: number; afterCorrection?: boolean };
   "sources.fetch": { sourceId: string; force?: boolean };
   "sources.fetch-x": { key: string; sourceIds: string[] };
+  "sources.mp-archive": { sourceId: string; runId: string; maxRequests: number };
+  "research.answer": { id: string };
   "sources.mp": { sourceId: string; reason?: "schedule" | "manual" };
   "notify.selected": { articleId: string; attempt?: number };
   "publication.republish-source": { sourceId: string };
@@ -32,6 +34,8 @@ export const QUEUES = {
   fetchSource: "sources.fetch",
   fetchXShard: "sources.fetch-x",
   mpCheck: "sources.mp",
+  mpArchive: "sources.mp-archive",
+  research: "research.answer",
   notifySelected: "notify.selected",
   republishSource: "publication.republish-source",
   prepareMedia: "media.prepare",
@@ -47,6 +51,8 @@ const QUEUE_OPTIONS: Record<QueueName, QueueOptions> = {
   [QUEUES.digest]: { policy: "short", retryLimit: 3, retryDelay: 60, retryBackoff: true, expireInSeconds: 900 },
   [QUEUES.fetchSource]: { policy: "short", retryLimit: 0, expireInSeconds: 600 },
   [QUEUES.fetchXShard]: { policy: "short", retryLimit: 0, expireInSeconds: 900 },
+  [QUEUES.mpArchive]: { policy: "short", retryLimit: 0, expireInSeconds: 1800 },
+  [QUEUES.research]: { policy: "short", retryLimit: 0, expireInSeconds: 300 },
   [QUEUES.mpCheck]: { policy: "short", retryLimit: 3, retryDelay: 60, retryBackoff: true, expireInSeconds: 600 },
   [QUEUES.notifySelected]: { policy: "short", retryLimit: 0, expireInSeconds: 300 },
   [QUEUES.republishSource]: { policy: "short", retryLimit: 2, retryDelay: 60, expireInSeconds: 3600 },

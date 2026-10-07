@@ -42,7 +42,7 @@ async function route(articleId: string, db: Db): Promise<Route | null> {
   const [row] = await db<{ body_status: string; participation_mode: string; kind: string; config: Record<string, unknown>; url: string; bare: boolean; backfill: boolean; published_at: Date | null; discovered_at: Date }[]>`
     SELECT a.body_status, s.participation_mode, s.kind, s.config, a.url, (coalesce(a.body_text, '') = '' AND a.x_post IS NULL) AS bare,
            a.backfill, a.published_at, a.discovered_at
-    FROM articles a JOIN sources s ON s.id = a.source_id WHERE a.id = ${articleId}`;
+    FROM articles a JOIN sources s ON s.id = a.source_id WHERE a.id = ${articleId} AND a.raw->>'mpArchive' IS DISTINCT FROM 'true'`;
   if (!row) return null;
   const historical = isHistorical(row);
   const signal = row.participation_mode !== "editorial";
@@ -91,7 +91,7 @@ export async function resumeSourceArticles(sourceId: string, db: Db): Promise<vo
     WITH resumed AS (
       UPDATE articles a SET processing_state = 'new', processing_attempts = 0, processing_error = NULL,
         processing_retry_at = NULL, processing_queued_at = NULL
-      WHERE a.source_id = ${sourceId} AND a.processing_state = 'skipped'
+      WHERE a.source_id = ${sourceId} AND a.processing_state = 'skipped' AND a.raw->>'mpArchive' IS DISTINCT FROM 'true'
         AND NOT EXISTS (SELECT 1 FROM analyses n WHERE n.article_id = a.id AND n.input_revision = a.revision)
       RETURNING a.id, a.discovered_at
     ) SELECT id FROM resumed ORDER BY discovered_at DESC, id LIMIT 500`;
@@ -119,7 +119,7 @@ export async function settleNonEditorial(articleId: string): Promise<{ group: bo
 
 async function processingInput(articleId: string) {
   const [row] = await sql<{ participation_mode: string; revision: number; backfill: boolean; published_at: Date | null; discovered_at: Date }[]>`
-    SELECT s.participation_mode, a.revision, a.backfill, a.published_at, a.discovered_at FROM articles a JOIN sources s ON s.id = a.source_id WHERE a.id = ${articleId}`;
+    SELECT s.participation_mode, a.revision, a.backfill, a.published_at, a.discovered_at FROM articles a JOIN sources s ON s.id = a.source_id WHERE a.id = ${articleId} AND a.raw->>'mpArchive' IS DISTINCT FROM 'true'`;
   return row ? { ...row, historical: isHistorical(row) } : null;
 }
 

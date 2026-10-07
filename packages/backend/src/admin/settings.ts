@@ -10,6 +10,7 @@ import { sql } from "../db.ts";
 import { sha256 } from "../lib/ids.ts";
 import { loadContact, type ContactSettings } from "../site/contact.ts";
 import { audit } from "../audit.ts";
+import { EVERYINFRA_DEFAULT_BUDGET } from "../providers/everyinfra.ts";
 
 const MAX_QR_BYTES = 2 * 1024 * 1024;
 
@@ -59,10 +60,17 @@ export async function setTargetEnabled(key: string, enabled: boolean, reason: st
 
 export async function listBudgets(): Promise<BeforeJson<AdminBudget>[]> {
   return sql<BeforeJson<AdminBudget>[]>`
+    WITH available AS (
+      SELECT service, per_minute, per_hour, per_day, note, updated_at FROM budgets
+      UNION ALL
+      SELECT 'everyinfra', ${EVERYINFRA_DEFAULT_BUDGET.per_minute}, ${EVERYINFRA_DEFAULT_BUDGET.per_hour}, ${EVERYINFRA_DEFAULT_BUDGET.per_day},
+             '默认预算；保存后使用自定义上限', '2026-10-05T00:00:00Z'::timestamptz
+      WHERE NOT EXISTS (SELECT 1 FROM budgets WHERE service = 'everyinfra')
+    )
     SELECT b.service, b.per_minute, b.per_hour, b.per_day, b.note, b.updated_at,
            (SELECT count(*)::int FROM receipt_attempts a WHERE a.service = b.service AND a.origin = 'live' AND a.started_at > now() - interval '1 day') AS used_day,
            (SELECT count(*)::int FROM receipt_attempts a WHERE a.service = b.service AND a.origin = 'live' AND a.started_at > now() - interval '1 hour') AS used_hour
-    FROM budgets b ORDER BY b.service`;
+    FROM available b ORDER BY b.service`;
 }
 
 export async function updateBudget(service: string, input: { perMinute: number; perHour: number; perDay: number; reason: string }, actor: string) {

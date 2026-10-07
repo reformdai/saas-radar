@@ -19,7 +19,7 @@ const KEYS: Record<SourceRow["kind"], string[]> = {
   ],
   // X accounts are mostly read in shards, which apply only these.
   x_search: ["_aihot", "ingestNoiseFilter", "itemUrlPrefixRewrite", "query", "searchType"],
-  mp_account: ["wxid", "ghid", "nickname"],
+  mp_account: ["wxid", "ghid", "nickname", "listProvider"],
   // Reports and active search only store material; processing reads fetchPublicContent (jobs/content.ts).
   external: ["fetchPublicContent"],
 };
@@ -38,6 +38,7 @@ const NESTED: Record<string, string[]> = {
 };
 
 const VALUES: Record<string, string[]> = {
+  listProvider: ["dajiala", "everyinfra"],
   adapter: ["mimo_home"],
   parseMode: ["html", "markdown", "docusaurus_changelog"],
 };

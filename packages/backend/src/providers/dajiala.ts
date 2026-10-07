@@ -23,6 +23,8 @@ export interface MpHistory {
   remainMoney: number | null;
   receiptId: number;
   reused: boolean;
+  nextOffset?: string | null;
+  isEnd?: boolean;
 }
 
 export interface MpArticle {
@@ -49,15 +51,15 @@ function outcomeOf(json: { code?: number; msg?: string; cost_money?: number }, l
 }
 
 /** Latest posts of one account (first page, newest first). `window` buckets the receipt identity. */
-export async function mpHistory(ghid: string, opts: { subject: string; window: string }): Promise<MpHistory> {
+export async function mpHistory(ghid: string, opts: { subject: string; window: string; offset?: string }): Promise<MpHistory> {
   const { url, key } = base();
   const receipt = await paidRequest(
-    { service: "dajiala", purpose: "mp_history", subject: opts.subject, identity: { ghid, window: opts.window }, requestSummary: { ghid } },
+    { service: "dajiala", purpose: "mp_history", subject: opts.subject, identity: { ghid, window: opts.window, ...(opts.offset ? { offset: opts.offset } : {}) }, requestSummary: { ghid, offset: opts.offset ?? "" } },
     async () => {
       const res = await guardedFetch(`${url}/fbmain/monitor/v3/post_history`, {
         method: "POST",
         headers: { "content-type": "application/json", accept: "application/json" },
-        body: JSON.stringify({ ghid, key, verifycode: "" }),
+        body: JSON.stringify({ ghid, offset: opts.offset ?? "", key, verifycode: "" }),
         timeoutMs: 30_000,
         route: "direct",
       });
@@ -67,8 +69,8 @@ export async function mpHistory(ghid: string, opts: { subject: string; window: s
       return { response: json, cost, usage: { posts: Array.isArray((json as { data?: unknown[] }).data) ? (json as { data: unknown[] }).data.length : 0 } };
     },
   );
-  const json = receipt.response as { data?: MpPost[]; nickname?: string; remain_money?: number };
-  return { posts: json.data ?? [], nickname: json.nickname ?? null, remainMoney: json.remain_money ?? null, receiptId: receipt.receiptId, reused: receipt.reused };
+  const json = receipt.response as { data?: MpPost[]; nickname?: string; remain_money?: number; offset?: string; is_end?: number };
+  return { posts: json.data ?? [], nickname: json.nickname ?? null, remainMoney: json.remain_money ?? null, receiptId: receipt.receiptId, reused: receipt.reused, nextOffset: json.offset || null, isEnd: json.is_end === 1 };
 }
 
 /** Plain-text body of one article (mode 1: text with image markers). */

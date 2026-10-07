@@ -1,9 +1,10 @@
 // Collection picks up where it stopped: an X search longer than one run continues in later runs until
 // it meets the old watermark (no post in between is skipped, no page is bought twice), and a WeChat body
 // that failed for a passing reason is fetched again on the next check.
-import { Reply, stub, tag } from "./setup.ts";
+import { stub, tag } from "./setup.ts";
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
+import { MockAgent, getGlobalDispatcher, setGlobalDispatcher } from "undici";
 import { config } from "@aihot/backend/config";
 import { closeDb, sql } from "@aihot/backend/db";
 import { stopBoss } from "@aihot/backend/jobs/queue";
@@ -30,23 +31,30 @@ const socialdata = await stub((_hit, req) => {
   return { tweets: ids.slice(page * 20, page * 20 + 20).map(tweet), next_cursor: (page + 1) * 20 < ids.length ? String(page + 1) : null };
 });
 
-// Dajiala: one new post whose body answers 503 the first time.
-const MP_URL = `https://mp.weixin.qq.com/s/test-${T}`;
+// Dajiala lists one new post (as http://, like the real listing); its page answers 503 the first time.
+const MP_PATH = `/s/test-${T}`;
 let bodyCalls = 0;
-const dajiala = await stub((_hit, req) => {
-  if (req.url.startsWith("/fbmain/monitor/v3/post_history")) {
-    return { code: 0, data: [{ position: 1, url: MP_URL, title: `公众号文章 ${T}`, post_time: Math.floor(Date.now() / 1000) - 3600, digest: "摘要", sn: `sn-${T}` }], remain_money: 100 };
-  }
+const dajiala = await stub(() => ({
+  code: 0, data: [{ position: 1, url: `http://mp.weixin.qq.com${MP_PATH}`, title: `公众号文章 ${T}`, post_time: Math.floor(Date.now() / 1000) - 3600, digest: "摘要", sn: `sn-${T}` }], remain_money: 100,
+}));
+const wechat = new MockAgent();
+wechat.disableNetConnect();
+wechat.enableNetConnect(/^127\.0\.0\.1:/); // the SocialData and Dajiala stubs
+wechat.get("https://mp.weixin.qq.com").intercept({ path: MP_PATH }).reply(() => {
   bodyCalls += 1;
-  if (bodyCalls === 1) return new Reply(503, { error: "busy" });
-  return { code: 0, title: `公众号文章 ${T}`, content: `<p>正文第一段 ${T}</p><p>正文第二段</p>`, author: "作者", desc: "描述" };
-});
+  if (bodyCalls === 1) return { statusCode: 503, data: "busy" };
+  return { statusCode: 200, headers: { "content-type": "text/html; charset=utf-8" },
+    data: `<html><head><meta name="author" content="作者"></head><body><div id="js_content"><p>正文第一段 ${T}</p><p>正文第二段</p></div></body></html>` };
+}).persist();
+const previousDispatcher = getGlobalDispatcher();
+setGlobalDispatcher(wechat);
 
 process.env.SOCIALDATA_BASE_URL = socialdata.url;
 process.env.SOCIALDATA_API_KEY = "test-key";
 process.env.DAJIALA_BASE_URL = dajiala.url;
 process.env.DAJIALA_KEY = "test-key";
 config.allowPrivateNetworkFetch = true;
+config.wechatPageIntervalSeconds = 0;
 
 let savedBudgets: Array<{ service: string; per_minute: number; per_hour: number; per_day: number }> = [];
 before(async () => {
@@ -62,6 +70,8 @@ after(async () => {
   for (const b of savedBudgets) await sql`UPDATE budgets SET per_minute = ${b.per_minute}, per_hour = ${b.per_hour}, per_day = ${b.per_day} WHERE service = ${b.service}`;
   await socialdata.close();
   await dajiala.close();
+  setGlobalDispatcher(previousDispatcher);
+  await wechat.close();
   await stopBoss();
   await closeDb();
 });
@@ -97,7 +107,7 @@ test("a WeChat body that failed for a passing reason is fetched on the next chec
 
   const first = await checkMpAccount(MP_SOURCE, "manual");
   assert.equal(first.status, "ok");
-  assert.deepEqual({ ...(await article()) }, { body_status: "none", revision: 1, retry: { attempts: 1, error: "dajiala HTTP 503" } });
+  assert.deepEqual({ ...(await article()) }, { body_status: "none", revision: 1, retry: { attempts: 1, error: "WeChat page HTTP 503" } });
 
   const second = await checkMpAccount(MP_SOURCE, "manual");
   assert.equal(second.status, "ok");
@@ -108,5 +118,5 @@ test("a WeChat body that failed for a passing reason is fetched on the next chec
   assert.equal(queued!.processing_state, "new", "the article goes back to analysis");
 
   await checkMpAccount(MP_SOURCE, "manual");
-  assert.equal(bodyCalls, 2, "a body already stored is not bought again");
+  assert.equal(bodyCalls, 2, "a body already stored is not fetched again");
 });

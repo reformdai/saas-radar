@@ -1,13 +1,17 @@
-// WeChat official accounts. Dajiala (极致了, a paid service) supplies each account's latest posts and
-// article bodies; every enabled account is checked once per source interval.
+// WeChat official accounts. A paid list provider (Dajiala or EveryInfra) supplies each account's latest
+// posts; bodies are read from the public article page. Every enabled account is checked once per source interval.
 import { sql } from "../db.ts";
 import { upsertMaterial } from "../content/materials.ts";
 import { enqueue, QUEUES } from "../jobs/queue.ts";
 import { queueProcessing } from "../jobs/content.ts";
 import { stripTags } from "../lib/text.ts";
+import { normalizeMpBody } from "../content/mp-body.ts";
 import { sanitizeBody } from "../content/sanitize.ts";
 import { identityKeyForUrl } from "../lib/url.ts";
-import { mpArticle, mpHistory, type MpArticle } from "../providers/dajiala.ts";
+import { mpHistory } from "../providers/dajiala.ts";
+import { everyinfraHistory } from "../providers/everyinfra.ts";
+import { fetchWechatPage, type WechatPage } from "../providers/wechat-page.ts";
+import { assertSupportedConfig } from "./config-keys.ts";
 import { BudgetExceededError, ProviderRejectedError } from "../providers/receipts.ts";
 
 const MAX_NEW_PER_CHECK = 8;
@@ -17,21 +21,20 @@ const FIRST_CHECK_WINDOW_MS = 7 * 86400_000;
 const BODY_RETRIES = 3;
 const BODY_RETRY_WINDOW_MS = 3 * 86400_000;
 
-/** The article body, and when it is missing for a reason that may pass (rate limit, server error, lost answer), that reason. */
-async function fetchBody(url: string, sourceId: string, identity: string): Promise<{ body: MpArticle | null; passing: string | null }> {
+/** The article body, and when it is missing for a reason that may pass (verification page, server error, timeout), that reason. */
+async function fetchBody(url: string): Promise<{ body: WechatPage | null; passing: string | null }> {
   try {
-    return { body: await mpArticle(url, { subject: sourceId, identity }), passing: null };
+    return { body: await fetchWechatPage(url), passing: null };
   } catch (error) {
-    if (error instanceof BudgetExceededError) throw error;
-    const final = error instanceof ProviderRejectedError && !error.retryable;
-    return { body: null, passing: final ? null : String(error instanceof Error ? error.message : error).slice(0, 200) };
+    // No paid fallback: a passing failure is retried a few times, then the post keeps title and digest only.
+    return { body: null, passing: String(error instanceof Error ? error.message : error).slice(0, 200) };
   }
 }
 
 interface MpSource {
   id: string;
   name: string;
-  config: { wxid?: string; ghid?: string; nickname?: string };
+  config: { wxid?: string; ghid?: string; nickname?: string; listProvider?: "dajiala" | "everyinfra" };
   cursor: Record<string, unknown> | null;
   enabled: boolean;
   participation_mode: string;
@@ -41,15 +44,18 @@ export async function checkMpAccount(sourceId: string, reason: "schedule" | "man
   const [source] = await sql<MpSource[]>`SELECT id, name, config, cursor, enabled, participation_mode FROM sources WHERE id = ${sourceId} AND kind = 'mp_account'`;
   if (!source) return { sourceId, status: "missing" as const };
   if (!source.enabled && reason !== "manual") return { sourceId, status: "paused" as const };
+  assertSupportedConfig("mp_account", source.config);
+  const listProvider = source.config.listProvider ?? "dajiala";
   const ghid = source.config.ghid ?? source.config.wxid;
   if (!ghid) return { sourceId, status: "unconfigured" as const };
   const [run] = await sql<{ id: number }[]>`INSERT INTO fetch_runs (source_id, detail) VALUES (${sourceId}, ${sql.json({ reason })}) RETURNING id`;
   const firstCheck = !source.cursor?.lastCheckedAt;
   let created = 0;
   try {
-    // One paid list call per account per 10-minute window, whoever asks.
-    const window = `${reason === "schedule" ? "s" : "m"}:${Math.floor(Date.now() / 600_000)}`;
-    const history = await mpHistory(ghid, { subject: sourceId, window });
+    // Manual and scheduled checks share the same receipt within ten minutes.
+    // A provider failure never silently buys another provider's listing.
+    const window = String(Math.floor(Date.now() / 600_000));
+    const history = await (listProvider === "everyinfra" ? everyinfraHistory : mpHistory)(ghid, { subject: sourceId, window });
     const posts = [...history.posts].sort((a, b) => b.post_time - a.post_time);
     let fetched = 0;
     for (const p of posts) {
@@ -67,15 +73,14 @@ export async function checkMpAccount(sourceId: string, reason: "schedule" | "man
       if (known && !retryBody) continue;
       fetched += 1;
       // Without a body the post is listed anyway; analysis works from title and digest.
-      const { body, passing } = await fetchBody(p.url, sourceId, p.sn ?? p.url);
+      const { body, passing } = await fetchBody(p.url);
       if (known && !body?.content) {
         const retry = passing ? sql`jsonb_set(raw, '{dajiala,bodyRetry}', ${sql.json({ attempts: known.retry!.attempts + 1, error: passing })})` : sql`raw #- '{dajiala,bodyRetry}'`;
         await sql`UPDATE articles SET raw = ${retry} WHERE id = ${known.id}`;
         continue;
       }
-      // Mode 1 bodies are light HTML (paragraphs and image tags).
-      const html = body?.content ? sanitizeBody(body.content, p.url) : null;
-      const text = body?.content ? stripTags(body.content.replace(/<\/p>|<br\s*\/?>/gi, "\n")).replace(/\n{3,}/g, "\n\n").trim() : null;
+      const html = body?.content ? sanitizeBody(normalizeMpBody(body.content), p.url) : null;
+      const text = body?.content ? stripTags(html!.replace(/<\/p>|<br\s*\/?>/gi, "\n")).replace(/\n{3,}/g, "\n\n").trim() : null;
       const res = await upsertMaterial({
         sourceId,
         url: p.url,
@@ -103,7 +108,7 @@ export async function checkMpAccount(sourceId: string, reason: "schedule" | "man
         await queueProcessing(res.articleId);
       }
     }
-    const cursor = { ...(source.cursor ?? {}), lastCheckedAt: new Date().toISOString(), lastPostTime: posts[0]?.post_time ?? source.cursor?.lastPostTime ?? null, remainMoney: history.remainMoney };
+    const cursor = { ...(source.cursor ?? {}), listProvider, lastListCount: history.posts.length, lastListReceiptId: history.receiptId, lastCheckedAt: new Date().toISOString(), lastPostTime: posts[0]?.post_time ?? source.cursor?.lastPostTime ?? null, remainMoney: history.remainMoney };
     await sql`
       UPDATE sources SET last_fetch_at = now(), last_ok_at = now(), fail_count = 0, last_error = NULL, health = 'ok', cursor = ${sql.json(cursor as never)},
         next_fetch_at = now() + make_interval(mins => interval_minutes), updated_at = now()

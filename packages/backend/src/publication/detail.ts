@@ -4,6 +4,7 @@ import type { ItemDetail, SiteItemDetail, OutlineEntry, StoryRef } from "@aihot/
 import TurndownService from "turndown";
 import { sql } from "../db.ts";
 import { proxyBodyImages } from "../media/imgproxy.ts";
+import { normalizeMpBody } from "../content/mp-body.ts";
 import { textToHtml } from "../content/sanitize.ts";
 import { ITEM_COLUMNS, ITEM_FROM, toItemSummary, xView, type ItemRow } from "./items.ts";
 import { itemUrl } from "./links.ts";
@@ -41,6 +42,7 @@ async function loadRow(id: string): Promise<DetailRow | null> {
     SELECT ${ITEM_COLUMNS}, a.body_html, a.body_text, a.body_status, tr.body_html AS tr_html, tr.complete AS tr_complete
     ${ITEM_FROM}
     WHERE p.article_id = ${id}`;
+  if (row?.source_kind === "mp_account" && row.body_html) row.body_html = normalizeMpBody(row.body_html);
   return row ?? null;
 }
 

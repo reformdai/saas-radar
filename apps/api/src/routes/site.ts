@@ -7,6 +7,7 @@ import { InvalidCursorError } from "@aihot/backend/lib/cursor";
 import { exportMarkdown, loadItemDetail, siteItemDetail } from "@aihot/backend/publication/detail";
 import { loadPool, SearchBusyError } from "@aihot/backend/publication/pool";
 import { loadTimeline } from "@aihot/backend/publication/timeline";
+import { mpLibrary, mpArticleDetail } from "@aihot/backend/publication/mp";
 import { loadDiscoveries } from "@aihot/backend/publication/discoveries";
 import { loadStoryFollowups } from "@aihot/backend/publication/followups";
 import { loadDevelopments, loadGroupReports } from "@aihot/backend/publication/groups";
@@ -99,6 +100,17 @@ export function registerSite(app: FastifyInstance) {
     const body = { ...data, hot, generatedAt: new Date().toISOString() };
     const cc = cacheUntil(reply, 60, data.refreshAt);
     return sendJsonWithEtag(req, reply, body, { etagPrefix: "tl", cacheControl: cc, etagOf: { ...data, hot } });
+  }));
+
+  app.get("/api/site/mp", siteHandler(async (req, reply) => {
+    const q = looseQuery(req);
+    reply.header("Cache-Control", "no-cache");
+    return mpLibrary({ source: q.source, q: q.q, page: Number(q.page || 1) });
+  }));
+  app.get("/api/site/mp/:id", siteHandler(async (req, reply) => {
+    reply.header("Cache-Control", "no-cache");
+    const result = await mpArticleDetail((req.params as { id: string }).id);
+    return result ?? sendProblem(req, reply, { status: 404, code: "not_found", detail: "Not found." });
   }));
 
   app.get("/api/site/discoveries", siteHandler(async (req, reply) => {

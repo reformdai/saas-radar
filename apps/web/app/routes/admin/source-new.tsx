@@ -1,3 +1,4 @@
+import { MpListProvider } from "../../features/admin/MpListProvider";
 import { SITE } from "@aihot/industry/site";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router";
@@ -15,7 +16,7 @@ const TEMPLATES: Record<string, Record<string, unknown>> = {
   web_list: { url: "https://example.com/blog", baseUrl: "https://example.com", itemSelector: "article", linkSelector: "a", titleSelector: "h2", allowUrlPrefixes: ["https://example.com/blog/"] },
   json_list: { url: "https://example.com/api/posts", mode: "json_api", method: "GET", itemsPath: "data.items", titlePaths: ["title"], urlTemplate: "{raw:url}", summaryPaths: ["summary"] },
   x_search: { query: "from:handle -filter:replies", searchType: "Latest" },
-  mp_account: { ghid: "", nickname: "" },
+  mp_account: { ghid: "", nickname: "", listProvider: "dajiala" },
   external: {},
 };
 
@@ -62,6 +63,7 @@ export default function NewSource() {
                 {Object.entries(KIND_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
               </Select>
             </Field>
+            {form.kind === "mp_account" && <MpListProvider config={config} onChange={setConfig} />}
             <Field label="采集间隔（分钟）">
               <Input type="number" min={1} max={1440} value={form.interval_minutes} onChange={(e) => setForm({ ...form, interval_minutes: Number(e.target.value) })} />
             </Field>

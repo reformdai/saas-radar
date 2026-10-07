@@ -323,6 +323,7 @@ export default function ItemPage() {
             </div>
           )}
 
+          <div className="mt-5"><Link className="text-[14px] text-accent hover:underline" to={`/admin/research?article=${item.id}`}>引用本文，开始研究 →</Link></div>
           {summaryOnly && <p className="mt-7 rounded-control bg-bg-sunk px-4 py-3 text-[13.5px] leading-relaxed text-ink-3">应来源方要求，这里只提供摘要与原文入口。完整内容请阅读原文。</p>}
 
           {item.body && bodyHtml && (

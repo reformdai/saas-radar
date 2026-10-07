@@ -1,3 +1,5 @@
+import { MpArchive } from "../../features/admin/MpArchive";
+import { MpListProvider } from "../../features/admin/MpListProvider";
 import { SITE } from "@aihot/industry/site";
 import { useState } from "react";
 import { Link } from "react-router";
@@ -158,6 +160,7 @@ export default function SourceDetail({ loaderData }: Route.ComponentProps) {
               <Field label="名称">
                 <Input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
               </Field>
+              {s.kind === "mp_account" && <MpListProvider config={draft.config} onChange={(config) => setDraft({ ...draft, config })} />}
               <Field label="采集间隔（分钟）">
                 <Input type="number" min={1} max={1440} value={draft.interval_minutes} onChange={(e) => setDraft({ ...draft, interval_minutes: Number(e.target.value) })} />
               </Field>
@@ -206,6 +209,7 @@ export default function SourceDetail({ loaderData }: Route.ComponentProps) {
             </div>
           </Card>
 
+          {s.kind === "mp_account" && <MpArchive sourceId={s.id} listProvider={(s.config as { listProvider?: string }).listProvider === "everyinfra" ? "everyinfra" : "dajiala"} />}
           <Card title="最近条目" pad={false}>
             <DataTable
               rows={items}

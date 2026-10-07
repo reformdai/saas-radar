@@ -1,6 +1,7 @@
 // Collection jobs: per-source fetch runs and body extraction before analysis.
 import type { PgBoss } from "pg-boss";
 import { collectSource, collectXShard } from "../sources/collect.ts";
+import { runMpArchive } from "../sources/mp-archive.ts";
 import { checkMpAccount } from "../sources/mp.ts";
 import { QUEUES, work } from "./queue.ts";
 import { registerExtractionJobs } from "./content.ts";
@@ -17,5 +18,6 @@ export async function registerSourceJobs(boss: PgBoss) {
   await work(boss, QUEUES.mpCheck, { localConcurrency: 2, pollingIntervalSeconds: 2 }, async (data) => {
     return checkMpAccount(data.sourceId, data.reason ?? "schedule");
   });
+  await work(boss, QUEUES.mpArchive, { localConcurrency: 1, pollingIntervalSeconds: 2 }, async (data) => runMpArchive(data.sourceId, data.runId, data.maxRequests));
   await registerExtractionJobs(boss);
 }

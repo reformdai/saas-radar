@@ -50,3 +50,9 @@ export function evidenceCondition() {
 export function ownFactEvidenceCondition() {
   return sql`EXISTS (SELECT 1 FROM fact_articles fa WHERE fa.fact_id = p.fact_id AND fa.article_id = p.article_id AND ${evidenceCondition()})`;
 }
+
+/** Account archive: editorial accounts including unanalyzed materials, never withdrawn or gated. */
+export function mpArchiveCondition(now = new Date()) {
+  return sql`s.kind = 'mp_account' AND s.participation_mode = 'editorial'
+    AND (p.article_id IS NULL OR (p.visibility <> 'withdrawn' AND ${releasedCondition(now)}))`;
+}
