@@ -190,6 +190,13 @@ test("WeChat pages are spaced across processes, and a verification page pauses t
   const before = hits;
   await assert.rejects(fetchWechatPage('https://mp.weixin.qq.com/s/pace-4'), /paused until/);
   assert.equal(hits, before, 'nothing is requested while paused');
+  const pause = async () => (await sql<{ value: { cooldownMs: number } }[]>`SELECT value FROM settings WHERE key = 'wechat_page_pace'`)[0]!.value.cooldownMs;
+  assert.equal(await pause(), 3600_000);
+  // The pause ends and the block is still there: the next pause is twice as long.
+  await sql`UPDATE settings SET value = value || ${sql.json({ coolUntil: new Date(Date.now() - 60_000).toISOString() })} WHERE key = 'wechat_page_pace'`;
+  wechat.intercept({ path: '/s/captcha' }).reply(() => { hits++; return { statusCode: 200, data: '<p>当前环境异常，完成验证后即可继续访问</p>' }; });
+  await assert.rejects(fetchWechatPage('https://mp.weixin.qq.com/s/captcha'), /verification/);
+  assert.equal(await pause(), 7200_000);
  } finally {
   config.wechatPageIntervalSeconds = 0;
   setGlobalDispatcher(previous); await mock.close();

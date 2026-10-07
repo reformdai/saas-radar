@@ -5,8 +5,13 @@ import { config } from "../config.ts";
 import { sql } from "../db.ts";
 import { guardedFetch } from "../lib/http-fetch.ts";
 
-/** After a verification or throttling answer, no WeChat page is requested at all for this long. */
+/**
+ * After a verification or throttling answer, no WeChat page is requested at all for this long. A block
+ * can outlast it (seen: verification again on the first request an hour later), so another one within
+ * a day of the last pause doubles the pause, up to a day.
+ */
 const COOLDOWN_MS = 3600_000;
+const MAX_COOLDOWN_MS = 24 * 3600_000;
 const PACE_KEY = "wechat_page_pace";
 
 /**
@@ -31,9 +36,15 @@ async function pace(maxWaitMs: number): Promise<void> {
 }
 
 async function coolDown(): Promise<void> {
-  const until = new Date(Date.now() + COOLDOWN_MS).toISOString();
-  await sql`INSERT INTO settings (key, value, updated_by) VALUES (${PACE_KEY}, ${sql.json({ coolUntil: until })}, 'system')
-    ON CONFLICT (key) DO UPDATE SET value = settings.value || EXCLUDED.value, updated_at = now()`;
+  await sql.begin(async (tx) => {
+    await tx`INSERT INTO settings (key, value, updated_by) VALUES (${PACE_KEY}, '{}', 'system') ON CONFLICT (key) DO NOTHING`;
+    const [row] = await tx<{ value: { coolUntil?: string; cooldownMs?: number } }[]>`SELECT value FROM settings WHERE key = ${PACE_KEY} FOR UPDATE`;
+    const now = Date.now();
+    const last = Date.parse(row!.value.coolUntil ?? "");
+    if (last > now) return; // Already paused (a concurrent request saw the same block).
+    const cooldownMs = now - last < MAX_COOLDOWN_MS ? Math.min((row!.value.cooldownMs ?? COOLDOWN_MS / 2) * 2, MAX_COOLDOWN_MS) : COOLDOWN_MS;
+    await tx`UPDATE settings SET value = value || ${tx.json({ coolUntil: new Date(now + cooldownMs).toISOString(), cooldownMs })}, updated_at = now() WHERE key = ${PACE_KEY}`;
+  });
 }
 
 export interface WechatPage {
