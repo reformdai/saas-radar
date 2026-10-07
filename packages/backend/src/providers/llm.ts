@@ -241,6 +241,108 @@ export async function chatJson<S extends z.ZodType>(opts: ChatJsonOptions<S>): P
   return { data: parsed, receiptId: receipt.receiptId, reused: receipt.reused, model: spec.key, usage: response.usage ?? null };
 }
 
+export interface ChatStreamOptions {
+  model: string;
+  purpose: string;
+  subject: string;
+  promptVersion: string;
+  system: string;
+  user: string;
+  temperature?: number;
+  maxTokens?: number;
+  timeoutMs?: number;
+  /** The answer so far, after every received piece (and once with a reused answer). */
+  onText: (text: string) => void | Promise<void>;
+}
+
+/** A plain-text answer read as it is generated (OpenAI-compatible `stream: true`), through receipts like chatJson. */
+export async function chatStream(opts: ChatStreamOptions): Promise<{ text: string; receiptId: number; reused: boolean; usage: Record<string, unknown> | null }> {
+  const spec = MODELS[opts.model];
+  if (!spec) throw new Error(`Unknown model ${opts.model}`);
+  if (!config.modelCallsEnabled) throw new Error("Model calls are disabled (MODEL_CALLS_ENABLED=false)");
+  const baseUrl = credential("models", spec.baseUrlEnv);
+  const apiKey = credential("models", spec.apiKeyEnv);
+  if (!baseUrl || !apiKey || !spec.model) throw new Error(`Model ${opts.model} is not configured (${spec.baseUrlEnv}, ${spec.apiKeyEnv}${spec.key === "default" ? ", LLM_MODEL" : ""})`);
+
+  const temperature = opts.temperature ?? 0.2;
+  const maxTokens = Math.max(opts.maxTokens ?? 1500, 512) + (spec.key.endsWith("-think") ? 4000 : 0);
+  const body = {
+    model: spec.model,
+    messages: [{ role: "system", content: opts.system }, { role: "user", content: opts.user }],
+    temperature,
+    max_tokens: maxTokens,
+    stream: true,
+    stream_options: { include_usage: true },
+    ...(spec.extra ?? {}),
+  };
+  const receipt = await paidRequest(
+    {
+      service: spec.service,
+      model: spec.model,
+      purpose: opts.purpose,
+      subject: opts.subject,
+      identity: { model: spec.model, promptVersion: opts.promptVersion, system: sha256(opts.system), user: sha256(opts.user), temperature, maxTokens, extra: spec.extra ?? null, stream: true },
+      requestSummary: { promptVersion: opts.promptVersion, systemHash: sha256(opts.system), userHash: sha256(opts.user), userChars: opts.user.length, temperature, maxTokens, stream: true },
+    },
+    async () => {
+      const started = Date.now();
+      let res: Response;
+      try {
+        res = await fetch(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {
+          method: "POST",
+          headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(opts.timeoutMs ?? 180_000),
+        });
+      } catch (error) {
+        if (isConnectFailure(error)) throw new ProviderRejectedError(`connect failed: ${String(error)}`, null, true);
+        throw error;
+      }
+      if (!res.ok || !res.body) {
+        const retryable = res.status === 429 || res.status >= 500;
+        throw new ProviderRejectedError(`HTTP ${res.status}: ${(await res.text()).slice(0, 500)}`, res.status, retryable);
+      }
+      // Server-sent events: one `data: {...}` line per piece, `data: [DONE]` at the end; reasoning pieces are not answer text.
+      let text = "", buffer = "", id: string | null = null, finish: string | null = null;
+      let usage: Record<string, unknown> | null = null;
+      const decoder = new TextDecoder();
+      for await (const chunk of res.body as unknown as AsyncIterable<Uint8Array>) {
+        buffer += decoder.decode(chunk, { stream: true });
+        let end: number;
+        while ((end = buffer.indexOf("\n")) >= 0) {
+          const line = buffer.slice(0, end).trim();
+          buffer = buffer.slice(end + 1);
+          if (!line.startsWith("data:") || line === "data: [DONE]") continue;
+          let event: { id?: string; usage?: Record<string, unknown>; choices?: Array<{ delta?: { content?: string }; finish_reason?: string | null }> };
+          try { event = JSON.parse(line.slice(5)); } catch { continue; }
+          id ??= event.id ?? null;
+          if (event.usage) usage = event.usage;
+          const choice = event.choices?.[0];
+          if (choice?.finish_reason) finish = choice.finish_reason;
+          if (choice?.delta?.content) {
+            text += choice.delta.content;
+            await opts.onText(text);
+          }
+        }
+      }
+      return {
+        response: { id, choices: [{ message: { content: text }, finish_reason: finish }], usage, _latencyMs: Date.now() - started },
+        requestId: id ?? res.headers.get("x-request-id"),
+        usage,
+        cost: null,
+      };
+    },
+  );
+  const response = receipt.response as { choices?: Array<{ message?: { content?: string } }>; usage?: Record<string, unknown> | null };
+  const text = response.choices?.[0]?.message?.content ?? "";
+  if (!text.trim()) {
+    await rejectReceivedResponse(receipt.receiptId, "empty streamed answer");
+    throw new ModelOutputError(`Model ${opts.model} streamed no answer for ${opts.subject}`, receipt.receiptId);
+  }
+  if (receipt.reused) await opts.onText(text);
+  return { text, receiptId: receipt.receiptId, reused: receipt.reused, usage: response.usage ?? null };
+}
+
 export async function markReceiptsCompleted(ids: number[]): Promise<void> {
   for (const id of ids) await completeReceipt(sql, id);
 }

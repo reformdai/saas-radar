@@ -2,6 +2,7 @@ import { stub, tag } from "./setup.ts";
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { randomUUID } from "node:crypto";
+import http from "node:http";
 import { MockAgent, getGlobalDispatcher, setGlobalDispatcher } from "undici";
 import { sql, closeDb } from "@aihot/backend/db";
 import { config } from "@aihot/backend/config";
@@ -83,27 +84,46 @@ test("research records are private to their owner; Chinese retrieval removes fil
  assert.equal(researchTerms('请问如何解释一下').includes('请问'), false);
 });
 
-test("research worker uses only retrieved references and stores cited answers without duplicate model calls", async () => {
+test("research answers stream into the stored turn, cite what they mark and never pay twice", async () => {
  const { answerResearch } = await import('@aihot/backend/research');
  const id = randomUUID();
  const [article] = await sql`SELECT id FROM articles WHERE source_id = ${source} ORDER BY created_at LIMIT 1`;
- const server = await stub((_hit, req) => {
-  const body = JSON.parse(req.body);
-  const context = JSON.parse(body.messages[1].content);
-  assert.equal(context.materials.length, 1);
-  assert.equal(context.materials[0].number, 1);
-  return { id: 'test-answer', choices: [{ message: { content: JSON.stringify({ answer: '依据文章，可先研究关键词。[1]', citations: [1, 5] }) } }], usage: { prompt_tokens: 100, completion_tokens: 20 } };
+ const pieces = ['依据文章，', '可先研究关键词[1]。', '另见[5]。'];
+ const seen: string[] = [];
+ let hits = 0;
+ const server = http.createServer((req, res) => {
+  let raw = ''; req.on('data', c => raw += c); req.on('end', async () => {
+   hits++;
+   const body = JSON.parse(raw);
+   assert.equal(body.stream, true);
+   const context = JSON.parse(body.messages[1].content);
+   assert.equal(context.materials.length, 1); assert.equal(context.materials[0].number, 1);
+   res.writeHead(200, { 'content-type': 'text/event-stream' });
+   for (const piece of pieces) {
+    res.write(`data: ${JSON.stringify({ id: 'test-answer', choices: [{ delta: { content: piece } }] })}\n\n`);
+    await new Promise(r => setTimeout(r, 450));
+    // What the page would read while the model is still writing.
+    const [r] = await sql`SELECT value FROM settings WHERE key = ${`research:${id}`}`;
+    seen.push(`${r!.value.status}:${r!.value.answer ?? ''}`);
+   }
+   res.write(`data: ${JSON.stringify({ id: 'test-answer', choices: [{ delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 100, completion_tokens: 20 } })}\n\ndata: [DONE]\n\n`);
+   res.end();
+  });
  });
- process.env.LLM_BASE_URL = server.url; process.env.LLM_API_KEY = 'test-key'; process.env.LLM_MODEL = 'test-model';
+ await new Promise<void>(r => server.listen(0, '127.0.0.1', r));
+ process.env.LLM_BASE_URL = `http://127.0.0.1:${(server.address() as { port: number }).port}`; process.env.LLM_API_KEY = 'test-key'; process.env.LLM_MODEL = 'test-model';
  config.modelCallsEnabled = true;
  await sql`INSERT INTO settings (key, value) VALUES (${`research:${id}`}, ${sql.json({ id, owner: source, articleId: article.id, question: `怎样实践？${source}`, scope: 'article', status: 'queued', previousId: null, references: [], citations: [], answer: null, error: null })})`;
  try {
   await answerResearch(id);
   const turn = (await researchTurn(id, source))!;
   assert.equal(turn.status, 'completed', turn.error ?? '');
-  assert.deepEqual(turn.citations, [1]); assert.equal(turn.references.length, 1);
-  await answerResearch(id); assert.equal(server.hits(), 1);
- } finally { await server.close(); }
+  assert.equal(turn.answer, pieces.join(''));
+  assert.ok(seen.some(s => s.startsWith('answering:依据文章')), `partial answer stored while streaming: ${seen.join(' | ')}`);
+  assert.deepEqual(turn.citations, [1], 'only marked numbers that exist among the references');
+  assert.equal(turn.references.length, 1);
+  await answerResearch(id); assert.equal(hits, 1);
+ } finally { server.closeAllConnections(); await new Promise<void>(r => server.close(() => r())); }
 });
 
 test("an EveryInfra history list is one async listing, complete for that provider until the provider changes", async () => {
