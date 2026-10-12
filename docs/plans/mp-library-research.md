@@ -32,3 +32,10 @@
 - 待真实验收：付费分页、补全文及模型问答；当前仅本地stub和SSR/HTTP验证。
 - 待改进：研究对话刷新恢复完整会话、检索片段质量/向量检索（未授权扩大实现范围，按反馈决定）。
 - 完整后端测试仍有失败，不能标全绿；不擅自重置旧测试库、迁移新库或混合提交其他任务修改。
+
+## 进展（2026-10-07，Claude Code）
+
+- [x] 研究回答改为流式：`providers/llm.ts` 新增 `chatStream`（`stream: true`，照常走回执和预算）；worker 每 0.4 秒把已生成的部分写入 `research:<id>`（状态 `answering`），页面每 0.5 秒读一次。回答改为纯文本，引用从正文里的 `[n]` 标号提取，promptVersion 为 `research-v2`。提交 `708dfe1`。
+- [x] 研究记录：后台导航「研究记录」（`/admin/research`）列出本人的全部对话；打开任意一轮都会显示整串对话，解决了“刷新只恢复最新轮”。接口为 `GET /api/admin/research`、`GET /api/admin/research/:id/thread`。提交 `671bc84`。
+- 验证：stub 流式模型测试（确认请求 `stream: true`、生成过程中已存入部分回答、引用过滤、重放不重复付费）以及历史和对话测试通过；在干净 worktree 里 typecheck、web 构建、`mp-library` 与 `architecture` 测试通过。**真实模型的流式效果由主人在页面上看到；我这边没有做端到端截图验收。**
+- 未做：worker 中途崩溃后状态会停在 `answering`，页面会一直轮询（没有超时恢复）；检索质量和向量检索仍按反馈再定。
