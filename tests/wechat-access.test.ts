@@ -10,7 +10,7 @@ const app = await buildApp();
 after(async () => { await app.close(); await closeDb(); });
 
 test("private group reads and commands reject anonymous callers with no-store", async () => {
-  for (const [method, url] of [["GET", "/api/admin/wechat"], ["POST", "/api/admin/wechat/group"], ["GET", "/api/ingest/wechat/status?account=main"], ["POST", "/api/ingest/wechat"]] as const) {
+  for (const [method, url] of [["GET", "/api/admin/wechat"], ["GET", "/api/admin/wechat/digests"], ["GET", "/api/admin/wechat/digest?account=main&group=1%40chatroom&day=2026-10-07"], ["POST", "/api/admin/wechat/group"], ["GET", "/api/ingest/wechat/status?account=main"], ["POST", "/api/ingest/wechat"]] as const) {
     const response = await app.inject({ method, url, ...(method === "POST" ? { payload: {} } : {}) });
     assert.equal(response.statusCode, 401, url);
     assert.equal(response.headers["cache-control"], "no-store");

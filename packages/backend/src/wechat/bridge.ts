@@ -34,29 +34,40 @@ export function pushEvent(eventName: string, value: unknown, groups: ReadonlySet
 
 export function pulledEvent(group: string, name: string, value: unknown): WechatEvent | null {
   const p = object(value);
-  const messageId = id(p.serverId);
+  for (const field of ["sessionId", "talker"] as const) {
+    if (field in p && p[field] !== group) throw new Error("WeFlow 返回了不属于请求群的消息，保留原同步水位");
+  }
+  if ("revoked" in p && typeof p.revoked !== "boolean") throw new Error("WeFlow 撤回标记格式无效，保留原同步水位");
+  const revoked = p.revoked === true;
+  const messageId = id(revoked ? p.originalMessageId : p.serverId);
+  if (revoked && !messageId) throw new Error("WeFlow 撤回消息缺少有效的原消息 ID，保留原同步水位");
   const ts = timestamp(p.createTime);
   if (!messageId || !ts) return null;
   return {
     group_id: group, group_name: name, message_id: messageId,
     sender_id: text(p.senderUsername), sender_name: text(p.senderName),
-    content: text(p.parsedContent) || text(p.content), sent_at: ts, revoked: false,
+    content: revoked ? "" : text(p.parsedContent) || text(p.content), sent_at: ts, revoked,
   };
 }
 
 /** Streaming UTF-8/CRLF and multiple data lines, including an unfinished final event. */
-export async function* sseEvents(stream: ReadableStream<Uint8Array>): AsyncGenerator<{ event: string; data: string }> {
+export async function* sseEvents(stream: ReadableStream<Uint8Array>): AsyncGenerator<{ event: string; data: string; id?: string }> {
   const reader = stream.getReader();
   const decoder = new TextDecoder();
   let buffer = "", event = "message", data: string[] = [];
+  let eventId: string | undefined;
   const line = (value: string) => {
     if (!value) {
-      const result = data.length ? { event, data: data.join("\n") } : null;
+      const result = data.length ? { event, data: data.join("\n"), ...(eventId === undefined ? {} : { id: eventId }) } : null;
       event = "message"; data = [];
       return result;
     }
     if (value.startsWith("event:")) event = value.slice(6).trim();
     if (value.startsWith("data:")) data.push(value.slice(5).replace(/^ /, ""));
+    if (value.startsWith("id:")) {
+      const nextId = value.slice(3).replace(/^ /, "");
+      if (!nextId.includes("\0")) eventId = nextId;
+    }
     return null;
   };
   try {
@@ -96,6 +107,7 @@ export class WeFlowBridge {
   private readonly options: BridgeOptions;
   private readonly base: string;
   private readonly selected: Set<string>;
+  private lastEventId = "";
   constructor(options: BridgeOptions) {
     this.base = weflowBase(options.baseUrl);
     if (!options.token || /[\r\n]/.test(options.token)) throw new Error("请配置有效的 WEFLOW_TOKEN");
@@ -108,7 +120,7 @@ export class WeFlowBridge {
   private now() { return Math.floor((this.options.now?.() ?? Date.now()) / 1000); }
   private async request(endpoint: string, signal: AbortSignal, streaming = false) {
     const response = await (this.options.fetch ?? fetch)(`${this.base}${endpoint}`, {
-      headers: { authorization: `Bearer ${this.options.token}`, accept: streaming ? "text/event-stream" : "application/json" },
+      headers: { authorization: `Bearer ${this.options.token}`, accept: streaming ? "text/event-stream" : "application/json", ...(streaming && this.lastEventId ? { "Last-Event-ID": this.lastEventId } : {}) },
       redirect: "error", signal: streaming ? signal : AbortSignal.any([signal, AbortSignal.timeout(30_000)]),
     });
     if (!response.ok) throw new Error(`WeFlow 请求失败（HTTP ${response.status}）`);
@@ -122,11 +134,11 @@ export class WeFlowBridge {
     if ([...this.selected].some((g) => !names.has(g))) throw new Error("指定群未出现在 WeFlow 会话列表，请检查群 ID 和连接账号");
     await this.options.sink.send({ account: this.options.account, initialSince: this.options.initialSince, groups: [...this.selected].map((g) => ({ id: g, name: names.get(g) || g })) });
   }
-  async reconcile(signal: AbortSignal) {
+  async reconcile(signal: AbortSignal, fullWindow = false) {
     const groups = await this.options.sink.status(this.options.account);
     for (const group of groups.filter((g) => g.enabled && this.selected.has(g.group_id))) {
       const through = this.now();
-      const start = Math.max(0, group.reconcile_through - 60); // same-second/late arrivals
+      const start = Math.max(0, fullWindow ? this.options.initialSince : group.reconcile_through - 60);
       let offset = 0;
       while (true) {
         signal.throwIfAborted();
@@ -134,6 +146,7 @@ export class WeFlowBridge {
         const response = await this.request(`/api/v1/messages?${params}`, signal);
         const page = object(await response.json());
         if (page.success !== true || !Array.isArray(page.messages) || typeof page.hasMore !== "boolean") throw new Error("WeFlow 消息分页格式无效");
+        if (page.talker !== group.group_id) throw new Error("WeFlow 补漏响应缺少匹配的群标识，保留原同步水位");
         const events: WechatEvent[] = [];
         for (const raw of page.messages) {
           const item = pulledEvent(group.group_id, group.name, raw);
@@ -153,7 +166,11 @@ export class WeFlowBridge {
   async receive(signal: AbortSignal) {
     const response = await this.request("/api/v1/push/messages", signal, true);
     if (!response.body || !response.headers.get("content-type")?.includes("text/event-stream")) throw new Error("WeFlow 主动推送未启用或响应格式无效");
+    try {
     this.options.log?.("WeFlow SSE 已连接");
+    // 长时间断线可能超出 WeFlow 内存重放窗口；保持流连接后恢复整个已授权时间范围。
+    // 查询仅在连接恢复时补漏，旧时间戳的迟到消息也能被找回。
+    await this.reconcile(signal, true);
     for await (const item of sseEvents(response.body)) {
       if (item.event !== "message.new" && item.event !== "message.revoke") continue;
       let value: unknown;
@@ -161,6 +178,11 @@ export class WeFlowBridge {
       const event = pushEvent(item.event, value, this.selected);
       if (event) await this.options.sink.send({ account: this.options.account, events: [event] });
       else if (this.selected.has(text(object(value).sessionId))) this.options.log?.("已选择群有一条事件缺少有效消息 ID 或时间，未上报；等待查询补漏。");
+      if (item.id !== undefined && /^\d*$/.test(item.id)) this.lastEventId = item.id;
+    }
+    } finally {
+      // 补漏可能在迭代器创建前失败，仍须释放已经打开的 SSE 连接。
+      await response.body.cancel().catch(() => {});
     }
     if (!signal.aborted) throw new Error("WeFlow SSE 连接已断开");
   }

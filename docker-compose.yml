@@ -48,6 +48,12 @@ services:
       <<: *app-env
       API_HOST: 0.0.0.0
       API_PORT: "3001"
+    healthcheck:
+      test: ["CMD", "node", "--input-type=module", "-e", "const r = await fetch('http://127.0.0.1:3001/api/health', {signal: AbortSignal.timeout(4000)}); process.exit(r.ok ? 0 : 1)"]
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 12
     depends_on:
       setup:
         condition: service_completed_successfully
@@ -64,16 +70,27 @@ services:
 
   web:
     <<: *app
+    # SSR only calls the API; provider keys and database credentials stay in backend containers.
+    env_file: []
     command: ["node", "apps/web/server.ts"]
     environment:
-      <<: *app-env
+      NODE_ENV: production
+      API_BASE_URL: http://api:3001
+      SITE_URL: ${SITE_URL:-http://localhost:3000}
+      TRUST_PROXY: ${TRUST_PROXY:-false}
       WEB_HOST: 0.0.0.0
       WEB_PORT: "3000"
+    healthcheck:
+      test: ["CMD", "node", "--input-type=module", "-e", "const r = await fetch('http://127.0.0.1:3000/api/health', {signal: AbortSignal.timeout(4000)}); process.exit(r.ok ? 0 : 1)"]
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 12
     ports:
       - "${PORT:-3000}:3000"
     depends_on:
       api:
-        condition: service_started
+        condition: service_healthy
 
   caddy:
     image: caddy:2-alpine

@@ -22,7 +22,8 @@ import { releaseReceipt } from "@aihot/backend/operations/recover";
 import { resolveDelivery } from "@aihot/backend/notify/deliver";
 import { sendProblem } from "../http/respond.ts";
 import { adminHandler } from "./admin-auth.ts";
-import { pauseWechat, wechatInbox } from "@aihot/backend/wechat/store";
+import { pauseWechat, selectWechatGroup, wechatInbox } from "@aihot/backend/wechat/store";
+import { wechatDigestDetail, wechatDigestFeed } from "@aihot/backend/wechat/digests";
 
 type Q = Record<string, string | undefined>;
 const q = (req: FastifyRequest) => req.query as Q;
@@ -39,8 +40,11 @@ function decodeImage(dataUrl: unknown): Buffer {
 }
 
 export function registerAdmin(app: FastifyInstance) {
+  app.get("/api/admin/wechat/digests", adminHandler(async req => wechatDigestFeed(q(req))));
+  app.get("/api/admin/wechat/digest", adminHandler(async (req, reply) => orNotFound(req, reply, await wechatDigestDetail(q(req)))));
   app.get("/api/admin/wechat", adminHandler(async (req) => wechatInbox(q(req))));
   app.post("/api/admin/wechat/group", adminHandler(async (req, _reply, admin) => pauseWechat(body(req), actorOf(admin))));
+  app.post("/api/admin/wechat/selection", adminHandler(async (req, _reply, admin) => selectWechatGroup(body(req), actorOf(admin))));
   app.get("/api/admin/sources/:id/archive", adminHandler(async (req) => ({ state: await archiveState(param(req, "id")) })));
   app.post("/api/admin/sources/:id/archive", adminHandler(async (req, reply, admin) => orNotFound(req, reply, await archiveAction(param(req, "id"), body(req) as never, actorOf(admin)))));
   app.post("/api/admin/research", adminHandler(async (req, _reply, admin) => askResearch(body(req), actorOf(admin), String(req.headers["idempotency-key"] || ""))));

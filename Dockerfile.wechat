@@ -1,0 +1,29 @@
+# Independent local collector: no web build, database connection or model keys.
+FROM node:24-trixie-slim AS deps
+WORKDIR /app
+COPY package.json package-lock.json ./
+COPY apps/api/package.json apps/api/
+COPY apps/web/package.json apps/web/
+COPY apps/worker/package.json apps/worker/
+COPY packages/backend/package.json packages/backend/
+COPY packages/contracts/package.json packages/contracts/
+COPY industry/package.json industry/
+ARG NPM_REGISTRY=
+RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund ${NPM_REGISTRY:+--registry=$NPM_REGISTRY}
+
+FROM node:24-trixie-slim
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends python3 libsqlcipher1 libzstd1 ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+ENV NODE_ENV=production PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 TMPDIR=/work
+COPY --from=deps /app/node_modules/zod /app/node_modules/zod
+COPY package.json ./
+COPY packages/backend/src/wechat/local.ts packages/backend/src/wechat/
+COPY scripts/wechat-collect.ts scripts/
+COPY scripts/wechat/reader.py scripts/wechat/lock.py scripts/wechat/process-lock.ts scripts/wechat/docker-entrypoint.ts scripts/wechat/
+# Named volumes inherit these mount-point modes. Each collector then creates its
+# own 0700 private state directory and 0700 temporary encrypted-copy directories.
+RUN mkdir /state /work && chmod 1777 /state /work
+USER node
+ENTRYPOINT ["node", "scripts/wechat/docker-entrypoint.ts"]

@@ -69,6 +69,7 @@ export default function DiscoverPage() {
       <p className="mb-4 max-w-[680px] text-[13px] leading-[1.7] text-ink-3">
         分析完成的全部收录材料，按本站发现时间排列，旧文也在内。标“精选”的过了精选门槛，附推荐理由和待调查问题；其余只是收录，没有推荐理由，值不值得看由你判断。只看精选请到<Link to="/" className="text-accent hover:underline">精选</Link>。
       </p>
+      <nav aria-label="信息流" className="mb-5 flex gap-5 border-b border-line pb-3 text-[14px]"><Link to="/discover" aria-current="page" className="font-semibold text-accent">公开资料</Link><Link to="/wechat" className="text-ink-3">群聊要点 · 私人</Link></nav>
       <CategoryTabs base="/discover" category={category} firstParty={false} layoutId="discover-category" className="mb-4" />
       <p role="status" aria-live="polite" className="mb-2 min-h-5 text-[12px] text-ink-4">{busy ? "正在加载…" : ""}</p>
       <div aria-busy={busy} className={busy ? "opacity-60" : ""}>

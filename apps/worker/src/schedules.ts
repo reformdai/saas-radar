@@ -23,6 +23,7 @@ import { recoverStaleWork } from "@aihot/backend/operations/recover";
 import { forwardPendingFeedback } from "@aihot/backend/operations/feedback";
 import { backupConfigured, runBackup } from "@aihot/backend/operations/backup";
 import { sourceHealthWeekly } from "@aihot/backend/operations/reports";
+import { summarizePendingWechat } from "@aihot/backend/wechat/digests";
 
 interface Scheduled {
   name: string;
@@ -34,6 +35,9 @@ interface Scheduled {
 const collecting = process.env.COLLECT_ENABLED !== "false";
 
 export const SCHEDULES: Scheduled[] = [
+  ...(process.env.WECHAT_SUMMARIES_ENABLED === "true"
+    ? [{ name: "wechat.summarize", cron: "*/5 * * * *", run: summarizePendingWechat }]
+    : []),
   { name: "content.sweep", cron: "*/5 * * * *", run: sweepUnprocessed },
   // Full-text translations of newly selected items (model calls; off with MODEL_CALLS_ENABLED=false).
   { name: "content.translate", cron: "*/5 * * * *", run: () => translatePending() },

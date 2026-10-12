@@ -10,6 +10,9 @@ import { fileURLToPath } from "node:url";
 let ready = true;
 let origin = "", logs = "";
 let web: ChildProcess;
+const digest = { account: "main", group_id: "123@chatroom", name: "SaaS 测试群", day: "2026-10-07", status: "ready",
+  points: [{ title: "先验证获客渠道", summary: "群友建议先访谈用户 <script>alert(2)</script>", evidenceIds: ["18446744073709551615"] }],
+  message_count: 2, updated_at: "2026-10-07T08:00:00.000Z", error: null };
 const api = createServer((req, res) => {
   const url = new URL(req.url!, "http://test.local");
   res.setHeader("content-type", "application/json");
@@ -17,6 +20,8 @@ const api = createServer((req, res) => {
   if (!req.headers.cookie?.includes("synthetic-session=ok")) { res.statusCode = 401; res.end("{}"); return; }
   if (url.pathname === "/api/admin/me") return res.end(JSON.stringify({ name: "测试管理员", csrf: "synthetic-csrf", dev: false }));
   if (url.pathname === "/api/admin/nav-counts") return res.end("{}");
+  if (url.pathname === "/api/admin/wechat/digests") return res.end(JSON.stringify({ ready: true, enabled: true, items: [digest], hasMore: false }));
+  if (url.pathname === "/api/admin/wechat/digest") return res.end(JSON.stringify({ digest, messages: [{ group_id: "123@chatroom", message_id: "18446744073709551615", sender_id: "member", sender_name: "测试成员", content: "合成原消息依据 <script>alert(3)</script>", sent_at: 1791356400, revoked: false }] }));
   if (url.pathname === "/api/admin/wechat") return res.end(JSON.stringify({ ready, groups: ready ? [{ account: "main", group_id: "123@chatroom", name: "SaaS 测试群", enabled: true, reconcile_through: 1760000000, last_received_at: new Date().toISOString(), last_checked_at: new Date().toISOString(), message_count: 2 }] : [], messages: ready ? [
     { group_id: "123@chatroom", message_id: "18446744073709551615", sender_id: "member", sender_name: "测试成员", content: "出海案例 <script>alert(1)</script>", sent_at: 1760000000, revoked: false },
     { group_id: "123@chatroom", message_id: "2", sender_id: "member", sender_name: "测试成员", content: "", sent_at: 1759999999, revoked: true },
@@ -61,4 +66,31 @@ test("an uninitialized private store is an explicit setup state, not an empty sy
   const response = await fetch(`${origin}/admin/wechat`, { headers: { cookie: "synthetic-session=ok" } });
   assert.equal(response.status, 200);
   assert.match(await response.text(), /群聊数据表尚未初始化/);
+});
+
+test("private summary feed and evidence render through authenticated APIs without public caching", async () => {
+  for (const path of ["/wechat", "/wechat?account=main&group=123%40chatroom&day=2026-10-07", "/wechat.data"]) {
+    const response = await fetch(`${origin}${path}`, { headers: { cookie: "synthetic-session=ok" } });
+    assert.equal(response.status, 200, logs);
+    assert.match(response.headers.get("cache-control")!, /no-store/);
+    assert.equal(response.headers.get("x-accel-expires"), "0");
+    assert.match(response.headers.get("x-robots-tag")!, /noindex/);
+    const html = await response.text();
+    assert.match(html, /先验证获客渠道/);
+    if (!path.endsWith(".data")) assert.doesNotMatch(html, /<script>alert\([23]\)<\/script>/);
+    if (path.includes("day=")) assert.match(html, /合成原消息依据/);
+  }
+});
+
+test("signed-out summary navigation and data never return private summaries", async () => {
+  for (const path of ["/wechat", "/wechat.data", "/wechat?account=main&group=123%40chatroom&day=2026-10-07"]) {
+    const response = await fetch(`${origin}${path}`, { redirect: "manual" });
+    assert.match(response.headers.get("cache-control")!, /no-store/);
+    const text = await response.text();
+    assert.doesNotMatch(text, /先验证获客渠道|群友建议|合成原消息依据/);
+    if (!path.endsWith(".data")) {
+      assert.equal(response.status, 302);
+      assert.match(response.headers.get("location")!, /^\/admin\/login\?/);
+    } else assert.match(text, /admin\/login/);
+  }
 });

@@ -22,6 +22,7 @@ export const SIDEBAR: Array<{ title: string; items: NavItem[] }> = [
     items: [
       { to: "/", label: "精选", icon: IconBolt, end: true },
       { to: "/discover", label: "今日发现", icon: IconClock },
+      { to: "/wechat", label: "群聊要点", icon: IconMessage },
       { to: "/all", label: `全部${withSubject("动态")}`, icon: IconList },
       { to: "/mp", label: "公众号", icon: IconDoc },
       { to: "/hot", label: "热点榜", icon: IconFlame },
@@ -61,7 +62,7 @@ export const TABBAR: NavItem[] = [
 ];
 
 /** Pages reached from the mobile "更多" tab keep that tab highlighted. */
-export const MORE_PATHS = ["/more", "/mp", "/daily", "/hot", "/topics", "/starred", "/leaderboard", "/codex-reset", "/agent", "/about", "/changelog", "/feedback", "/terms", "/privacy"];
+export const MORE_PATHS = ["/more", "/mp", "/wechat", "/daily", "/hot", "/topics", "/starred", "/leaderboard", "/codex-reset", "/agent", "/about", "/changelog", "/feedback", "/terms", "/privacy"];
 
 export function tabIsActive(item: NavItem, pathname: string): boolean {
   if (item.end) return pathname === item.to;

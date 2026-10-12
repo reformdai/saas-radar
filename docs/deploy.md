@@ -30,6 +30,51 @@ docker compose up -d --build
 
 `docker compose` 会起五个容器：`db`（PostgreSQL 17）、`setup`（每次启动先跑数据库迁移和种子数据，然后退出）、`api`、`worker`（抓取、模型处理、定时任务）、`web`（网页）。
 
+### ShipRadar：一条命令管理三个服务
+
+项目根目录执行：
+
+```bash
+npm run docker:up
+```
+
+这条命令会构建镜像、统一启动服务，并等待 API 与网页健康检查通过。首次构建需要下载镜像和依赖，之后复用构建缓存。后台 worker 自动重启，停止时保留正在执行任务的收尾时间。
+
+**默认 Docker 方案使用独立数据库卷，不会读取本机 `.env` 里的 `DATABASE_URL`。** 如果已经用本机三个进程收录了文章、配置了信源或预算，先确定是否沿用原数据库，再切换运行方式。已有数据库和 `.data` 附件目录是两份数据，都需要保留；不要在未核对连接目标时启动 `setup`。切换旧服务前也应先停止旧 worker，避免两套定时任务并行。
+
+日常命令：
+
+```bash
+npm run docker:status   # 查看服务与健康状态，包括已退出的 setup
+npm run docker:logs     # 查看 API、worker、web 日志
+npm run docker:stop     # 停止服务，保留数据库与附件卷
+```
+
+### `.env` 与后台配置怎么读取
+
+项目根目录的 `.env` 在容器创建时传给 API、worker 和 setup，不复制进镜像。`DAJIALA_KEY`、`TAVILY_API_KEY`、模型密钥及采集/模型开关都沿用这个文件，不需要分别为三个服务维护配置。前端容器仅接收网站地址、API 地址、代理开关与监听配置，不接收后端密钥或数据库连接。
+
+| 配置 | Docker 中的读取方式 |
+| --- | --- |
+| 服务商 Key、模型配置、各安全阀 | 后端从 `.env` 注入的环境变量读取 |
+| `SITE_URL` | 前后端使用同一个对外地址；默认 `http://localhost:3000` |
+| `DATABASE_URL` | 默认 Compose 覆盖为容器数据库 `db:5432` |
+| `API_BASE_URL` / `LOCAL_ROUTER_URL` | Compose 覆盖为 `api:3001` / `web:3000`，不能使用宿主机回环地址 |
+| `AIHOT_DATA_DIR` | 默认 Compose 覆盖为持久卷 `/data` |
+| 信源、预算、后台选择的模型 | 存在数据库里，停止或重建应用容器不会清空 |
+
+修改 `.env` 后执行：
+
+```bash
+npm run docker:reload
+```
+
+该命令重新创建三个应用容器，使它们读取新的环境变量，不运行 setup，也不修改数据库卷。单纯 `docker compose restart` 不会重新注入 `.env`（见 [Docker 官方说明](https://docs.docker.com/reference/cli/docker/compose/restart/)）。改源码时执行 `npm run docker:up` 重新构建；若涉及迁移，仍按下方“更新”流程操作。更改 PostgreSQL 密码或数据连接不能仅靠应用 reload 完成。
+
+容器里的 `127.0.0.1` 指向容器自身。若模型接口、代理或数据库运行在 Mac 宿主机上，使用 Docker Desktop 的 `host.docker.internal`，并先确认宿主服务允许该连接。`AIHOT_CREDENTIALS_DIR` 分组凭据需要另外只读挂载，不会随宿主机路径自动进入容器；普通 `.env` 配置不需要此步骤。
+
+微信群采集器使用独立的 `compose.wechat.yml`，在运行微信的 Mac 上部署，配置一次后用 `npm run docker:wechat` 后台启动；源数据库和逐库密钥只读挂载，详见 [本地微信群采集与 Docker](wechat-local.md)。它不依赖 WeFlow，不会随主站 Compose 自动启动或重建主站。公众号采集属于 worker，可随 Compose 统一启动。
+
 ### 在中国大陆的服务器上
 
 - 构建时 npm 走国内镜像：`docker compose build --build-arg NPM_REGISTRY=https://registry.npmmirror.com`，然后 `docker compose up -d`。

@@ -5,7 +5,15 @@ apps/web/.react-router
 .data
 .env
 .env.*
+**/*.env
+**/*.env.*
 !.env.example
 .git
 .github
+.agents
+.codex
+.aws
+.ssh
+.worktreeinclude
+WORKLOG.md
 *.log

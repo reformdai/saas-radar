@@ -6,6 +6,7 @@ export default [
   route("mp", "routes/mp.tsx"),
   route("mp/articles/:id", "routes/mp-article.tsx"),
   route("discover", "routes/discover.tsx"),
+  route("wechat", "routes/wechat.tsx"),
   route("all/search-busy", "routes/search-busy.tsx", { id: "all-search-busy" }),
   route("search-busy", "routes/search-busy.tsx", { id: "search-busy" }),
   route("items/:id", "routes/item.tsx"),

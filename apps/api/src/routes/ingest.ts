@@ -4,7 +4,7 @@ import { timingSafeEqual } from "node:crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { credential } from "@aihot/backend/config";
 import { IngestError, ingestItems } from "@aihot/backend/ingest/items";
-import { receiveWechat, wechatStatus } from "@aihot/backend/wechat/store";
+import { receiveWechat, recordWechatDiscovery, wechatCollectorConfig, wechatStatus } from "@aihot/backend/wechat/store";
 import { ZodError } from "zod";
 
 
@@ -35,6 +35,21 @@ function unauthorized(reply: FastifyReply) {
 }
 
 export function registerIngest(app: FastifyInstance) {
+  app.get("/api/ingest/wechat/config", async (req, reply) => {
+    reply.header("Cache-Control", "no-store");
+    if (!authorized(req)) return unauthorized(reply);
+    try { return await wechatCollectorConfig((req.query as Record<string, unknown>).account); }
+    catch (error) { return reply.code(error instanceof ZodError ? 400 : 503).send({ ok: false, error: "群聊配置暂不可用，请检查数据库迁移" }); }
+  });
+  app.post("/api/ingest/wechat/discovery", async (req, reply) => {
+    reply.header("Cache-Control", "no-store");
+    if (!authorized(req)) return unauthorized(reply);
+    try { return await recordWechatDiscovery(req.body); }
+    catch (error) {
+      const invalid = error instanceof ZodError || (error as { statusCode?: number }).statusCode === 400;
+      return reply.code(invalid ? 400 : 503).send({ ok: false, error: invalid ? "群聊列表格式无效" : "群聊发现暂不可用，请检查数据库迁移" });
+    }
+  });
   app.get("/api/ingest/wechat/status", async (req, reply) => {
     reply.header("Cache-Control", "no-store");
     if (!authorized(req)) return unauthorized(reply);

@@ -34,6 +34,37 @@ export interface WechatIntake {
 export interface WechatInbox {
   ready: boolean;
   groups: WechatGroup[];
+  candidates: Array<{ account: string; group_id: string; name: string; selected: boolean; last_seen_at: string }>;
   messages: WechatMessage[];
   hasMore: boolean;
+}
+
+export interface WechatDigestPoint {
+  title: string;
+  summary: string;
+  evidenceIds: string[];
+}
+
+export interface WechatDigest {
+  account: string;
+  group_id: string;
+  name: string;
+  day: string;
+  status: "pending" | "ready" | "error";
+  points: WechatDigestPoint[];
+  message_count: number;
+  updated_at: string;
+  error: string | null;
+}
+
+export interface WechatDigestFeed {
+  ready: boolean;
+  enabled: boolean;
+  items: WechatDigest[];
+  hasMore: boolean;
+}
+
+export interface WechatDigestDetail {
+  digest: WechatDigest;
+  messages: WechatMessage[];
 }

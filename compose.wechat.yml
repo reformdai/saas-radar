@@ -1,0 +1,51 @@
+# Standalone collector on the Mac running WeChat. Does not start/change the site.
+name: shipradar-wechat
+
+services:
+  collector:
+    build:
+      context: .
+      dockerfile: Dockerfile.wechat
+    image: shipradar-wechat-collector:local
+    init: true
+    restart: unless-stopped
+    read_only: true
+    user: "${WECHAT_COLLECTOR_UID:-1000}:${WECHAT_COLLECTOR_GID:-1000}"
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    stop_grace_period: 30s
+    environment:
+      # The dedicated switch enables this collector without changing the site's
+      # COLLECT_ENABLED setting used by its other sources.
+      COLLECT_ENABLED: "${WECHAT_LOCAL_ENABLED:-false}"
+      WECHAT_LOCAL_ENABLED: "${WECHAT_LOCAL_ENABLED:-false}"
+      MODEL_CALLS_ENABLED: "false"
+      SHIPRADAR_INGEST_URL: "${SHIPRADAR_INGEST_URL:-http://host.docker.internal:3000}"
+      INGEST_TOKEN: "${INGEST_TOKEN:?需要现有站点的 INGEST_TOKEN}"
+      WECHAT_ACCOUNT: "${WECHAT_ACCOUNT:-main}"
+      WECHAT_SINCE: "${WECHAT_SINCE:-}"
+      WECHAT_INTERVAL: "${WECHAT_INTERVAL:-600}"
+    volumes:
+      - type: bind
+        source: "${WECHAT_DB_DIR:?指定账号的 db_storage 绝对路径}"
+        target: /wechat/db
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: "${WECHAT_KEY_FILE:?指定独立 key-map 文件的绝对路径}"
+        target: /wechat/keys.json
+        read_only: true
+        bind:
+          create_host_path: false
+      - state:/state
+      - snapshots:/work
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"
+
+volumes:
+  state: {}
+  snapshots: {}

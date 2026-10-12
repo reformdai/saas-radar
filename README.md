@@ -64,6 +64,8 @@
 - `FEISHU_*_ENABLED`、`INDEXNOW_SUBMIT_ENABLED` 保持 `false`；
 - 不需要 SocialData、极致了、Jina 等付费服务的 key。
 
+Docker 可用 `npm run docker:up` 统一启动 API、网页和 worker；修改 `.env` 后用 `npm run docker:reload` 重新加载，日志用 `npm run docker:logs`。默认 Compose 使用独立数据库卷；从本机三个进程切换时，先按 [部署说明](docs/deploy.md) 确定如何保留现有数据库和附件目录。
+
 改完代码后的检查命令见 [AGENTS.md](AGENTS.md)。
 
 ---
