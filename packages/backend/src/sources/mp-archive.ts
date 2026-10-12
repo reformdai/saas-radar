@@ -81,9 +81,11 @@ export async function runMpArchive(sourceId: string, runId: string, maxRequests:
         const page = everyinfra
           ? await everyinfraHistory(account, { subject: sourceId, window: `archive:${runId}`, async: true })
           : await mpHistory(account, { subject: sourceId, window: `archive:${runId}`, offset: state.offset });
-        // EveryInfra has no paging: its one listing is all it can reach.
-        const isEnd = everyinfra || page.isEnd === true;
-        const invalidCursor = !isEnd && (!page.nextOffset || page.nextOffset === state.offset);
+        // EveryInfra has no paging: its one listing is all it can reach. An empty listing reached nothing,
+        // so it does not complete the list and another click may ask again.
+        const emptyListing = everyinfra && page.posts.length === 0;
+        const isEnd = everyinfra ? !emptyListing : page.isEnd === true;
+        const invalidCursor = !everyinfra && !isEnd && (!page.nextOffset || page.nextOffset === state.offset);
         let stored = 0;
         await sql.begin(async (tx) => {
           for (const p of page.posts) {
@@ -98,11 +100,12 @@ export async function runMpArchive(sourceId: string, runId: string, maxRequests:
               stored++;
             }
           }
-          state.pages++; state.stored += stored; state.offset = page.nextOffset ?? state.offset;
+          state.pages++; state.listed = (state.listed ?? 0) + page.posts.length; state.stored += stored; state.offset = page.nextOffset ?? state.offset;
           state.listComplete = isEnd; state.lastReceiptId = page.receiptId;
           await save(sourceId, state, tx);
         });
         if (invalidCursor) throw new Error("服务商未返回可继续的分页游标，本页已保存；已停止，不重复购买同一页");
+        if (emptyListing) throw new Error("万有引擎本次未返回文章，列表未标记完成；费用以后台回执为准，可稍后再试");
       } else {
         // Every stored article of the account still without a body, archived or collected daily: reading is free now.
         const [article] = await sql<{ id: string; url: string; title: string; excerpt: string | null; published_at: Date | null; processing_state: string }[]>`

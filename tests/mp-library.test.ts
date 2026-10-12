@@ -149,7 +149,7 @@ test("an EveryInfra history list is one async listing, complete for that provide
   await runMpArchive(id, queued.runId, 5);
   const state = (await archiveState(id))!;
   assert.equal(state.status, 'completed', state.error ?? '');
-  assert.deepEqual([state.pages, state.stored, state.listComplete], [1, 2, true], 'one paid listing, no further pages');
+  assert.deepEqual([state.pages, state.listed, state.stored, state.listComplete], [1, 2, 2, true], 'one paid listing, no further pages');
   assert.equal(submitted.mode, 'async');
   const [receipt] = await sql`SELECT request_id, cost FROM receipts WHERE id = ${state.lastReceiptId}`;
   assert.deepEqual([receipt!.request_id, Number(receipt!.cost)], ['job_1', 0.005556], 'the job is the request and the submission carries the charge');
@@ -160,6 +160,42 @@ test("an EveryInfra history list is one async listing, complete for that provide
   assert.deepEqual([restarted.listProvider, restarted.offset, restarted.listComplete], ['dajiala', '', false], 'another provider starts the list again');
   await sql`UPDATE settings SET value = value || '{"status":"paused"}'::jsonb WHERE key = ${`mp_archive:${id}`}`;
  } finally {
+  setGlobalDispatcher(previous); await mock.close();
+  if (saved === undefined) delete process.env.COLLECT_ENABLED; else process.env.COLLECT_ENABLED = saved;
+ }
+});
+
+test("an empty EveryInfra listing does not complete the history list, so it can be asked again", async () => {
+ const id = `${source}-ei-empty`;
+ await sql`INSERT INTO sources (id, name, kind, tier, participation_mode, config, next_fetch_at)
+  VALUES (${id}, '万有引擎空列表', 'mp_account', 'T2', 'editorial', ${sql.json({ ghid: `gh-${id}`, listProvider: 'everyinfra' })}, '2100-01-01')`;
+ const mock = new MockAgent(); mock.disableNetConnect();
+ const api = mock.get('https://api.everyinfra.com');
+ let submissions = 0;
+ api.intercept({ path: '/api/v1/social', method: 'POST' }).reply(() => {
+  submissions++;
+  return { statusCode: 202, data: { job_id: 'job_empty', status: 'running', billing: { charged: true, amount: { base: 'USD', amount: 0.00555556 } } } };
+ });
+ api.intercept({ path: '/api/v1/jobs/job_empty' }).reply(200, { job_id: 'job_empty', status: 'succeeded', count: 0, refund_state: 'refunded', results: [] });
+ const previous = getGlobalDispatcher(); setGlobalDispatcher(mock);
+ process.env.EVERYINFRA_API_KEY = 'test-key';
+ config.allowPrivateNetworkFetch = true;
+ const saved = process.env.COLLECT_ENABLED; process.env.COLLECT_ENABLED = 'true';
+ // The listing above may have used the default EveryInfra breaker's minute.
+ const [ownBudget] = await sql`SELECT 1 FROM budgets WHERE service = 'everyinfra'`;
+ if (!ownBudget) await sql`INSERT INTO budgets (service, per_minute, per_hour, per_day) VALUES ('everyinfra', 1000, 10000, 100000)`;
+ try {
+  const queued = (await archiveAction(id, { action: 'list', maxRequests: 5 }, 'test'))!;
+  await runMpArchive(id, queued.runId, 5);
+  const state = (await archiveState(id))!;
+  assert.equal(submissions, 1, 'an empty listing stops the batch instead of buying again at once');
+  assert.deepEqual([state.status, state.pages, state.listed, state.stored, state.listComplete], ['error', 1, 0, 0, false]);
+  assert.match(state.error ?? '', /未返回文章/);
+  const again = (await archiveAction(id, { action: 'list', maxRequests: 1 }, 'test'))!;
+  assert.equal(again.status, 'queued', 'another click asks again');
+  await sql`UPDATE settings SET value = value || '{"status":"paused"}'::jsonb WHERE key = ${`mp_archive:${id}`}`;
+ } finally {
+  if (!ownBudget) await sql`DELETE FROM budgets WHERE service = 'everyinfra'`;
   setGlobalDispatcher(previous); await mock.close();
   if (saved === undefined) delete process.env.COLLECT_ENABLED; else process.env.COLLECT_ENABLED = saved;
  }

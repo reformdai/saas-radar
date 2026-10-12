@@ -4,6 +4,8 @@ export interface MpArchiveState {
   status: "queued" | "running" | "paused" | "completed" | "error";
   offset: string;
   pages: number;
+  /** Posts the provider returned over all list pages, known or new; absent in states saved before it was counted. */
+  listed?: number;
   stored: number;
   bodies: number;
   failed: number;
