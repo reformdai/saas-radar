@@ -3,7 +3,7 @@
 export {};
 const options = process.argv.slice(2);
 const groups = (process.env.WECHAT_GROUPS || "").split(",").map(s => s.trim()).filter(Boolean);
-const args = ["--db-dir", "/wechat/db", "--key-file", "/wechat/keys.json", "--state", "/state/private/collector-state.json",
+const args = ["--db-dir", "/wechat/db", "--key-file", "/wechat/keys.json", "--state", options.includes("--history") ? "/state/private/history-state.json" : "/state/private/collector-state.json",
   "--account", process.env.WECHAT_ACCOUNT || "main", "--interval", process.env.WECHAT_INTERVAL || "600", "--managed",
   ...groups.flatMap(group => ["--group", group])];
 if (process.env.WECHAT_SINCE) args.push("--since", process.env.WECHAT_SINCE);

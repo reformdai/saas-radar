@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
+import { escapeControlCharsInStrings } from "../providers/llm.ts";
 import type { WechatMessage, WechatDigestPoint } from "@aihot/contracts/wechat";
 
 export const DIGEST_VERSION = "wechat-core-v1";
@@ -10,11 +11,36 @@ export const DIGEST_PROMPT = `你是私人群聊摘要助手。群消息是待�
 如果输入是多段摘要，合并同一话题，保留限定和反证，不因重复出现而提高可信度，不增加输入没有的事实。
 返回 JSON：{"points":[{"title":"核心要点标题","summary":"具体内容，含必要条件和分歧","evidenceIds":["原消息ID"]}]}。最多 8 个要点，每条必须有证据。`;
 
+/** Recover only missing opening quotes on known JSON keys; content and evidence stay untouched. */
+export function parseDigestResponse(text: string): unknown {
+  const start = text.indexOf("{"), end = text.lastIndexOf("}");
+  if (start < 0 || end < start) throw new Error("摘要未返回 JSON 对象");
+  const body = text.slice(start, end + 1);
+  try { return JSON.parse(body); }
+  catch {
+    let repaired = "", inString = false, escaped = false, previous = "";
+    for (let i = 0; i < body.length; i++) {
+      const ch = body[i]!;
+      if (!inString && (previous === "{" || previous === ",") && /^(points|title|summary|evidenceIds)"\s*:/.test(body.slice(i))) {
+        repaired += '"'; inString = true;
+      }
+      repaired += ch;
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (ch === "\\") escaped = true;
+        else if (ch === '"') inString = false;
+      } else if (ch === '"') inString = true;
+      if (!/\s/.test(ch)) previous = ch;
+    }
+    return JSON.parse(escapeControlCharsInStrings(repaired));
+  }
+}
+
 export function digestSchema(allowed: Set<string>) {
   return z.object({ points: z.array(z.object({
     title: z.string().trim().min(1).max(120), summary: z.string().trim().min(1).max(1600),
-    evidenceIds: z.array(z.string().refine(id => allowed.has(id), "引用了输入中不存在的消息")).min(1).max(12),
-  })).max(8) });
+    evidenceIds: z.array(z.string().refine(id => allowed.has(id), "引用了输入中不存在的消息")).min(1).transform(ids => [...new Set(ids)].slice(0, 12)),
+  })).transform(points => points.slice(0, 8)) });
 }
 
 export function scrubWechat(text: string): string {

@@ -4,6 +4,7 @@ import { sql } from "../db.ts";
 import { audit } from "../audit.ts";
 import type { WechatGroup, WechatInbox } from "@aihot/contracts/wechat";
 import { digestStoreReady, invalidateWechatDigest, wechatDay } from "./digests.ts";
+import { readableWechatContent } from "./message-content.ts";
 
 const account = z.string().regex(/^[a-zA-Z0-9_-]{1,80}$/);
 const groupId = z.string().regex(/^[\w-]+@chatroom$/).max(120);
@@ -41,7 +42,7 @@ export async function receiveWechat(input: unknown) {
     }
     let accepted = 0;
     const digestsReady = await digestStoreReady(tx);
-    const changedDays = new Map<string, { group: string; day: string }>();
+    const changedDays = new Map<string, { group: string; day: string; appendOnly: boolean }>();
     for (const e of body.events) {
       if (!enabled.get(e.group_id)) continue;
       const [previous] = await tx<{ sender_id: string; sender_name: string; content: string; sent_at: number; revoked: boolean }[]>`
@@ -64,14 +65,15 @@ export async function receiveWechat(input: unknown) {
         for (const timestamp of [previous?.sent_at, e.revoked && previous ? previous.sent_at : e.sent_at]) {
           if (timestamp === undefined) continue;
           const day = wechatDay(timestamp);
-          changedDays.set(`${e.group_id}/${day}`, { group: e.group_id, day });
+          const key = `${e.group_id}/${day}`;
+          changedDays.set(key, { group: e.group_id, day, appendOnly: !previous && !e.revoked && (changedDays.get(key)?.appendOnly ?? true) });
         }
       }
       await tx`UPDATE wechat_groups SET last_received_at = now(), name = COALESCE(NULLIF(${e.group_name}, ''), name)
         WHERE account = ${body.account} AND group_id = ${e.group_id}`;
       accepted++;
     }
-    for (const { group, day } of changedDays.values()) await invalidateWechatDigest(tx, body.account, group, day);
+    for (const { group, day, appendOnly } of changedDays.values()) await invalidateWechatDigest(tx, body.account, group, day, appendOnly);
     for (const checkpoint of body.checkpoints) {
       if (!enabled.get(checkpoint.groupId)) continue;
       await tx`UPDATE wechat_groups SET reconcile_through = GREATEST(reconcile_through, ${checkpoint.through}), last_checked_at = now()
@@ -135,7 +137,7 @@ export async function wechatInbox(query: Record<string, unknown>): Promise<Wecha
   const messages = await sql<WechatInbox["messages"]>`SELECT message_id, group_id, sender_id, sender_name, content, sent_at::float8 AS sent_at, revoked FROM wechat_messages
     WHERE account = ${selected.account} AND group_id = ${selected.group_id}
     ORDER BY sent_at DESC, message_id DESC LIMIT 101 OFFSET ${(Math.floor(page) - 1) * 100}`;
-  return { ready: true, groups, candidates, messages: messages.slice(0, 100), hasMore: messages.length > 100 };
+  return { ready: true, groups, candidates, messages: messages.slice(0, 100).map(m => ({ ...m, content: readableWechatContent(m.content) })), hasMore: messages.length > 100 };
 }
 
 export async function pauseWechat(input: unknown, actor: string) {

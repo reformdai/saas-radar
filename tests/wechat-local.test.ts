@@ -44,7 +44,10 @@ test("local intake tracks edits and resolves in-place revocation without using s
   const third = localBatch(input([revoked]), second.next);
   assert.equal(third.events[0]!.message_id, "9007199254740993");
   assert.equal(third.events[0]!.content, "");
-  assert.throws(() => localBatch(input([revoked]), initial()), /撤回/);
+  const unknown = localBatch(input([revoked, row("2@chatroom")]), initial());
+  assert.equal(unknown.pending, 1);
+  assert.deepEqual(unknown.unresolvedGroups, ["1@chatroom"]);
+  assert.deepEqual(unknown.events, [row("2@chatroom").event]);
   revoked.target = "123";
   assert.equal(localBatch(input([revoked]), initial()).events[0]!.message_id, "123");
 });
@@ -74,4 +77,7 @@ test("local delivery batches messages and never advances checkpoint after a fail
     failed.push(b);
   }), /outage/);
   assert.ok(failed.every(b => !b.checkpoints));
+  const partial: WechatIntake[] = [];
+  await deliverLocalBatch("synthetic", input([]).groups, 1, events, 200, async b => { partial.push(b); }, ["1@chatroom"]);
+  assert.deepEqual(partial.at(-1)!.checkpoints, [{ groupId: "2@chatroom", through: 200 }]);
 });

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { digestChunks, digestHash, scrubWechat, summarizeWechat } from "../packages/backend/src/wechat/digest-content.ts";
+import { parseDigestResponse, digestSchema, digestChunks, digestHash, scrubWechat, summarizeWechat } from "../packages/backend/src/wechat/digest-content.ts";
 import type { WechatMessage } from "@aihot/contracts/wechat";
 
 const message = (id: string, content: string): WechatMessage => ({ message_id: id, group_id: "1@chatroom", sender_id: "member", sender_name: "真实昵称", sent_at: 100, revoked: false, content });
@@ -36,4 +36,21 @@ test("multi-chunk summaries merge with valid source evidence; content changes in
   const before = digestHash(messages);
   messages[0]!.content += "修改";
   assert.notEqual(before, digestHash(messages));
+});
+
+test("valid extra points and evidence are bounded after checking every evidence ID", () => {
+  const ids = Array.from({ length: 15 }, (_, i) => String(i + 1));
+  const point = { title: "要点", summary: "结论", evidenceIds: ids };
+  const schema = digestSchema(new Set(ids));
+  const result = schema.parse({ points: Array.from({ length: 10 }, () => point) });
+  assert.equal(result.points.length, 8);
+  assert.equal(result.points[0]!.evidenceIds.length, 12);
+  assert.throws(() => schema.parse({points:[{...point,evidenceIds:[...ids,"invented"]}]}), /引用/);
+});
+
+test("digest parser repairs a missing known-key opening quote without changing quoted content", () => {
+  const value={points:[{title:"标题",summary:'原文 title": 保留',evidenceIds:["1"]}]};
+  assert.deepEqual(parseDigestResponse(JSON.stringify(value)),value);
+  assert.deepEqual(parseDigestResponse(JSON.stringify(value).replace('"title":','title":')),value);
+  assert.throws(()=>parseDigestResponse('{"points":[{unknown":1}]}'));
 });

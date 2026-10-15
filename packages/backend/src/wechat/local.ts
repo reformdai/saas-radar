@@ -36,12 +36,14 @@ const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(valu
 const validId = (value: string) => /^[1-9]\d{0,24}$/.test(value);
 
 /** No time cursor: compare the whole configured intake range, including late/edited rows. */
-export function localBatch(input: unknown, state: LocalState): { events: WechatEvent[]; next: LocalState; pending: number } {
+export function localBatch(input: unknown, state: LocalState): { events: WechatEvent[]; next: LocalState; pending: number; unresolvedGroups: string[] } {
   const read = LocalRead.parse(input);
   if (read.identity !== state.identity) throw new Error("账号目录已变化，拒绝沿用旧采集状态");
   if (JSON.stringify(read.groups.map(g => g.id).sort()) !== JSON.stringify([...state.groups].sort())) throw new Error("读取结果与群白名单不一致");
   const next: LocalState = { ...state, seen: { ...state.seen }, ids: { ...state.ids } };
   const candidates = new Map<string, WechatEvent>();
+  const unresolvedGroups = new Set<string>();
+  let unresolved = 0;
   // Establish all normal identities before resolving in-place revocations.
   for (const row of read.rows) {
     if (!state.groups.includes(row.event.group_id) || !row.local.startsWith(`${row.event.group_id}/`)) throw new Error("消息群身份冲突");
@@ -52,7 +54,11 @@ export function localBatch(input: unknown, state: LocalState): { events: WechatE
     if (event.revoked) {
       // A system row's own server_id is not proof of the revoked target's identity.
       event.message_id = row.target || next.ids[row.local] || "";
-      if (!validId(event.message_id)) throw new Error("撤回消息缺少可验证的目标 ID，本批未提交");
+      if (!validId(event.message_id)) {
+        unresolvedGroups.add(event.group_id);
+        unresolved++;
+        continue;
+      }
       event.content = "";
     } else if (!validId(event.message_id)) {
       if (event.message_id === "0") continue; // Pending sends are picked up on the next full scan.
@@ -71,11 +77,11 @@ export function localBatch(input: unknown, state: LocalState): { events: WechatE
     next.seen[key] = digest;
   }
   events.sort((a, b) => a.sent_at - b.sent_at || a.group_id.localeCompare(b.group_id) || (BigInt(a.message_id) < BigInt(b.message_id) ? -1 : 1));
-  return { events, next, pending: read.pending };
+  return { events, next, pending: read.pending + unresolved, unresolvedGroups: [...unresolvedGroups] };
 }
 
 /** State is saved by the caller only after every POST and its checkpoint succeed. */
-export async function deliverLocalBatch(account: string, groups: Array<{ id: string; name: string }>, since: number, events: WechatEvent[], through: number, send: (body: WechatIntake) => Promise<void>) {
+export async function deliverLocalBatch(account: string, groups: Array<{ id: string; name: string }>, since: number, events: WechatEvent[], through: number, send: (body: WechatIntake) => Promise<void>, unresolvedGroups: string[] = []) {
   await send({ account, groups, initialSince: since });
   // Keep each request comfortably within the API's body limit even for long messages.
   let batch: WechatEvent[] = [];
@@ -88,5 +94,6 @@ export async function deliverLocalBatch(account: string, groups: Array<{ id: str
     batch.push(event); bytes += size;
   }
   if (batch.length) await send({ account, events: batch });
-  await send({ account, checkpoints: groups.map(g => ({ groupId: g.id, through })) });
+  const checkpoints = groups.filter(g => !unresolvedGroups.includes(g.id)).map(g => ({ groupId: g.id, through }));
+  if (checkpoints.length) await send({ account, checkpoints });
 }

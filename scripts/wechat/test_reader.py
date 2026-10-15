@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from reader import Cipher, Reader, ReaderError, snapshot, decode_content, decode_zstd_native, sqlcipher_library
+from reader import Cipher, Reader, ReaderError, snapshot, decode_content, decode_zstd_native, sqlcipher_library, xml_body
 
 try:
     LIB = sqlcipher_library(os.environ.get("TEST_SQLCIPHER_LIB"))
@@ -75,6 +75,33 @@ class ReaderTests(unittest.TestCase):
             reader.read(["1@chatroom"], 1)
         self.assertNotIn("34" * 32, str(error.exception))
 
+    def test_targetless_revoke_preserves_normal_messages_and_never_guesses_target(self):
+        reader = self.fixture()
+        table = "Msg_" + hashlib.md5(b"1@chatroom").hexdigest()
+        with self.cipher.open(self.root / "message/message_1.db", KEY) as db:
+            self.cipher.query(db, f"INSERT INTO {table} VALUES(2,123,10000,101,1,'<sysmsg><revokemsg><content>合成撤回</content><revoketime>0</revoketime></revokemsg></sysmsg>')")
+        result = reader.read(["1@chatroom"], 1)
+        self.assertEqual(len(result["rows"]), 3)
+        revoked = [r for r in result["rows"] if r["event"]["revoked"]]
+        self.assertEqual(len(revoked), 1)
+        self.assertEqual(revoked[0]["target"], "")
+        self.assertEqual(revoked[0]["event"]["content"], "")
+
+    def test_history_pages_are_bounded_complete_and_resumable_at_same_timestamp(self):
+        reader = self.fixture()
+        table = "Msg_" + hashlib.md5(b"1@chatroom").hexdigest()
+        with self.cipher.open(self.root / "message/message_1.db", KEY) as db:
+            self.cipher.query(db, f"WITH RECURSIVE seq(x) AS (SELECT 2 UNION ALL SELECT x+1 FROM seq WHERE x<602) INSERT INTO {table} SELECT x,1000+x,1,100,1,'合成历史' FROM seq")
+        before = self.source_hashes()
+        pages = list(reader.batches(["1@chatroom"], 1))
+        self.assertEqual([len(p["rows"]) for p in pages], [250, 250, 102, 1])
+        self.assertEqual(len({r["local"] for p in pages for r in p["rows"]}), 603)
+        first = pages[0]["position"]
+        resumed = list(reader.batches(["1@chatroom"], 1, {first["scope"]: first}))
+        self.assertEqual([r["local"] for p in resumed for r in p["rows"]], [r["local"] for p in pages[1:] for r in p["rows"]])
+        self.assertEqual(before, self.source_hashes())
+        self.assertTrue(all(r["event"]["group_id"] == "1@chatroom" for p in pages for r in p["rows"]))
+
     def test_corrupt_committed_wal_rejected(self):
         self.fixture()
         wal = self.root / "message/message_1.db-wal"
@@ -111,6 +138,37 @@ class ReaderTests(unittest.TestCase):
         self.assertEqual(decode_zstd_native(data).decode(), "压缩正文")
         with self.assertRaises(ReaderError):
             decode_zstd_native(data[:-1])
+
+    def test_nested_quote_xml_is_readable_with_declaration_or_compact_xml(self):
+        inner = '<msg><appmsg><title>被引用的文字 &amp; 补充</title><type>57</type><refermsg></refermsg><appattach><aeskey>synthetic-key</aeskey></appattach></appmsg></msg>'
+        for declaration in ("", '<?xml version="1.0"?>\n'):
+            outer = '<msg><appmsg><title>当前回复</title><refermsg><displayname>合成群友</displayname><content><![CDATA[' + declaration + inner + ']]></content></refermsg></appmsg></msg>'
+            content = xml_body(outer)
+            self.assertEqual(content, "当前回复\n[引用] 合成群友: 被引用的文字 & 补充")
+            self.assertNotIn("aeskey", content)
+        self.assertEqual(xml_body('<msg><img aeskey="synthetic-key" /></msg>'), "[图片]")
+
+    def test_large_card_xml_is_decoded_before_extracting_small_visible_content(self):
+        import ctypes as C
+        import ctypes.util
+        lib = C.CDLL(ctypes.util.find_library("zstd"))
+        lib.ZSTD_compressBound.argtypes, lib.ZSTD_compressBound.restype = [C.c_size_t], C.c_size_t
+        lib.ZSTD_compress.argtypes = [C.c_void_p, C.c_size_t, C.c_void_p, C.c_size_t, C.c_int]
+        lib.ZSTD_compress.restype = C.c_size_t
+        body = ("<msg><appmsg><title>合成标题</title><des>合成说明</des><url>https://example.com</url><metadata>" + "x" * 200000 + "</metadata></appmsg></msg>").encode()
+        out = C.create_string_buffer(lib.ZSTD_compressBound(len(body)))
+        length = lib.ZSTD_compress(out, len(out), body, len(body), 1)
+        compressed = out.raw[:length]
+        self.assertEqual(decode_zstd_native(compressed), body)
+        reader = self.fixture()
+        event, pending = reader.message_row({"local_type": "49", "message_content": compressed, "sender": "member", "server_id": "123", "local_id": "1", "create_time": "100"}, "1@chatroom", "message_1.db", {})
+        self.assertEqual(event["event"]["content"], "合成标题\n合成说明\nhttps://example.com")
+        self.assertEqual(pending, 0)
+        oversized = b"x" * (4 * 1024 * 1024 + 2)
+        out = C.create_string_buffer(lib.ZSTD_compressBound(len(oversized)))
+        length = lib.ZSTD_compress(out, len(out), oversized, len(oversized), 1)
+        with self.assertRaisesRegex(ReaderError, "超过读取上限"):
+            decode_zstd_native(out.raw[:length])
 
     def test_read_only_source_directory_is_supported(self):
         reader = self.fixture()

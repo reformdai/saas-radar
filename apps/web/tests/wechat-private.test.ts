@@ -8,6 +8,7 @@ import { before, after, test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 let ready = true;
+let summariesEnabled = true;
 let origin = "", logs = "";
 let web: ChildProcess;
 const digest = { account: "main", group_id: "123@chatroom", name: "SaaS 测试群", day: "2026-10-07", status: "ready",
@@ -20,10 +21,10 @@ const api = createServer((req, res) => {
   if (!req.headers.cookie?.includes("synthetic-session=ok")) { res.statusCode = 401; res.end("{}"); return; }
   if (url.pathname === "/api/admin/me") return res.end(JSON.stringify({ name: "测试管理员", csrf: "synthetic-csrf", dev: false }));
   if (url.pathname === "/api/admin/nav-counts") return res.end("{}");
-  if (url.pathname === "/api/admin/wechat/digests") return res.end(JSON.stringify({ ready: true, enabled: true, items: [digest], hasMore: false }));
+  if (url.pathname === "/api/admin/wechat/digests") return res.end(JSON.stringify({ ready: true, enabled: summariesEnabled, items: [digest], hasMore: false }));
   if (url.pathname === "/api/admin/wechat/digest") return res.end(JSON.stringify({ digest, messages: [{ group_id: "123@chatroom", message_id: "18446744073709551615", sender_id: "member", sender_name: "测试成员", content: "合成原消息依据 <script>alert(3)</script>", sent_at: 1791356400, revoked: false }] }));
   if (url.pathname === "/api/admin/wechat") return res.end(JSON.stringify({ ready, groups: ready ? [{ account: "main", group_id: "123@chatroom", name: "SaaS 测试群", enabled: true, reconcile_through: 1760000000, last_received_at: new Date().toISOString(), last_checked_at: new Date().toISOString(), message_count: 2 }] : [], messages: ready ? [
-    { group_id: "123@chatroom", message_id: "18446744073709551615", sender_id: "member", sender_name: "测试成员", content: "出海案例 <script>alert(1)</script>", sent_at: 1760000000, revoked: false },
+    { group_id: "123@chatroom", message_id: "18446744073709551615", sender_id: "member", sender_name: "测试成员", content: "出海案例 <script>alert(1)</script>\n[引用] 测试成员: 被拒绝了[捂脸][图片]", sent_at: 1760000000, revoked: false },
     { group_id: "123@chatroom", message_id: "2", sender_id: "member", sender_name: "测试成员", content: "", sent_at: 1759999999, revoked: true },
   ] : [], hasMore: false }));
   res.statusCode = 404; res.end("{}");
@@ -69,7 +70,7 @@ test("an uninitialized private store is an explicit setup state, not an empty sy
 });
 
 test("private summary feed and evidence render through authenticated APIs without public caching", async () => {
-  for (const path of ["/wechat", "/wechat?account=main&group=123%40chatroom&day=2026-10-07", "/wechat.data"]) {
+  for (const path of ["/wechat?view=summary", "/wechat?account=main&group=123%40chatroom&day=2026-10-07", "/wechat.data?view=summary"]) {
     const response = await fetch(`${origin}${path}`, { headers: { cookie: "synthetic-session=ok" } });
     assert.equal(response.status, 200, logs);
     assert.match(response.headers.get("cache-control")!, /no-store/);
@@ -77,7 +78,7 @@ test("private summary feed and evidence render through authenticated APIs withou
     assert.match(response.headers.get("x-robots-tag")!, /noindex/);
     const html = await response.text();
     assert.match(html, /先验证获客渠道/);
-    if (!path.endsWith(".data")) assert.doesNotMatch(html, /<script>alert\([23]\)<\/script>/);
+    if (!path.includes(".data")) assert.doesNotMatch(html, /<script>alert\([23]\)<\/script>/);
     if (path.includes("day=")) assert.match(html, /合成原消息依据/);
   }
 });
@@ -93,4 +94,35 @@ test("signed-out summary navigation and data never return private summaries", as
       assert.match(response.headers.get("location")!, /^\/admin\/login\?/);
     } else assert.match(text, /admin\/login/);
   }
+});
+
+test("main WeChat entry displays original messages without requiring summaries", async () => {
+  ready = true;
+  const response = await fetch(`${origin}/wechat`, { headers: { cookie: "synthetic-session=ok" } });
+  assert.equal(response.status, 200, logs);
+  assert.match(response.headers.get("cache-control")!, /no-store/);
+  const html = await response.text();
+  assert.match(html, /已接入的群（(?:<!-- -->)?1/);
+  assert.match(html, /data-message-id="18446744073709551615"/);
+  assert.match(html, /出海案例 &lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+  assert.doesNotMatch(html, /<script>alert\(1\)<\/script>/);
+  assert.match(html, /这条消息已撤回/);
+  assert.doesNotMatch(html, /等待生成最新要点/);
+});
+
+ test("quotes and recognized faces render separately in both private message pages", async () => {
+  ready = true;
+  for (const path of ["/wechat", "/admin/wechat"]) {
+    const html = await (await fetch(`${origin}${path}`, {headers:{cookie:"synthetic-session=ok"}})).text();
+    assert.match(html, /<blockquote[^>]*aria-label="引用消息"/);
+    assert.match(html, /引用 测试成员/);
+    assert.match(html, /aria-label="捂脸"[^>]*>🤦<\/span>\[图片\]/);
+    assert.match(html, /被拒绝了/);
+  }
+});
+test("disabled automatic summaries explain that waiting will not generate data", async () => {
+  summariesEnabled = false;
+  const html = await (await fetch(`${origin}/wechat?view=summary`, {headers:{cookie:"synthetic-session=ok"}})).text();
+  assert.match(html, /等待不会自动生成/);
+  assert.match(html, /先验证获客渠道/);
 });

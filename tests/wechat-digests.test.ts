@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { closeDb, sql } from "@aihot/backend/db";
 import { config } from "@aihot/backend/config";
 import { receiveWechat, pauseWechat } from "../packages/backend/src/wechat/store.ts";
-import { buildWechatDigest, invalidateWechatDigest, wechatDigestDetail, wechatDigestFeed } from "../packages/backend/src/wechat/digests.ts";
+import { buildWechatDigest, invalidateWechatDigest, wechatDigestDetail, wechatDigestFeed, summarizePendingWechat, summaryGroups } from "../packages/backend/src/wechat/digests.ts";
 import { localBatch, deliverLocalBatch, LocalRead, type LocalState } from "../packages/backend/src/wechat/local.ts";
 import { buildApp } from "../apps/api/src/app.ts";
 import type { WechatEvent } from "@aihot/contracts/wechat";
@@ -31,6 +31,8 @@ test("intake invalidates only changed days; summaries retain valid evidence and 
   assert.equal(ready!.digest.points[0]!.evidenceIds[0], "9007199254740993");
   assert.equal(ready!.messages[0]!.content, "合成群聊讨论");
   await receiveWechat({ account, events: [event("2", "新增讨论")] });
+  assert.equal((await wechatDigestDetail(key))!.digest.status, "ready", "new arrivals retain the previous safe digest until refresh");
+  assert.equal((await wechatDigestDetail(key))!.digest.message_count, 1);
   const started = gate(), finish = gate();
   const building = buildWechatDigest(key, async (input, ids) => { started.open(); await finish.promise; return answer(input, ids); });
   await started.promise;
@@ -119,4 +121,47 @@ finally:
     for (const [key, value] of Object.entries(saved.env)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
     await app.close(); await provider.close();
   }
+});
+
+test("automatic summaries only process allowlisted groups today and yesterday, never old history", async () => {
+  const account = `scope_${tag()}`;
+  const today = new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10);
+  const start = Date.parse(`${today}T00:00:00+08:00`) / 1000;
+  const previousScope = process.env.WECHAT_SUMMARY_GROUPS;
+  try {
+    process.env.WECHAT_SUMMARY_GROUPS = `${account}:${group}`;
+    assert.deepEqual(summaryGroups(), [`${account}:${group}`]);
+    await receiveWechat({account, groups:[{id:group,name:"授权合成群"},{id:"98765@chatroom",name:"未授权合成群"}],initialSince:1,
+      events:[{...event("1"),sent_at:start}, {...event("2"),sent_at:start-3600}, {...event("3"),sent_at:start-3*86400}, {...event("4"),group_id:"98765@chatroom",sent_at:start}]});
+    const result = await summarizePendingWechat(answer);
+    assert.equal("processed" in result && result.processed, 2);
+    const rows = await sql<{group_id:string;day:string;status:string}[]>`SELECT group_id,day::text,status FROM wechat_digests WHERE account=${account}`;
+    assert.equal(rows.filter(r=>r.status==="ready").length,2);
+    assert.ok(rows.filter(r=>r.group_id!==group || r.day<today && r.day!==new Date((start-86400)*1000+8*3600_000).toISOString().slice(0,10)).every(r=>r.status==="pending"));
+    assert.deepEqual(await summarizePendingWechat(answer),{processed:0,results:[]});
+    process.env.WECHAT_SUMMARY_GROUPS = "";
+    assert.deepEqual(await summarizePendingWechat(answer),{skipped:true});
+  } finally {
+    if(previousScope===undefined) delete process.env.WECHAT_SUMMARY_GROUPS; else process.env.WECHAT_SUMMARY_GROUPS=previousScope;
+  }
+});
+
+test("new arrivals allow a safe partial-day snapshot and are picked up on the next tick", async () => {
+  const account=`busy_${tag()}`, today=new Date(Date.now()+8*3600_000).toISOString().slice(0,10);
+  const sent_at=Date.parse(`${today}T00:00:00+08:00`)/1000;
+  const key={account,group,day:today};
+  await receiveWechat({account,groups:[{id:group,name:"活跃合成群"}],initialSince:1,events:[{...event("1"),sent_at}]});
+  const built=await buildWechatDigest(key,async (input,ids)=>{
+    await receiveWechat({account,events:[{...event("2"),sent_at}]});
+    return answer(input,ids);
+  });
+  assert.deepEqual(built,{published:true,superseded:false});
+  assert.equal((await wechatDigestDetail(key))!.digest.message_count,1);
+  const previous=process.env.WECHAT_SUMMARY_GROUPS;
+  try{
+    process.env.WECHAT_SUMMARY_GROUPS=`${account}:${group}`;
+    await sql`UPDATE wechat_digests SET attempted_at=now()-interval '31 minutes' WHERE account=${account}`;
+    assert.equal((await summarizePendingWechat(answer) as {processed:number}).processed,1);
+    assert.equal((await wechatDigestDetail(key))!.digest.message_count,2);
+  }finally{if(previous===undefined)delete process.env.WECHAT_SUMMARY_GROUPS;else process.env.WECHAT_SUMMARY_GROUPS=previous;}
 });

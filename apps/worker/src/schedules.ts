@@ -36,7 +36,7 @@ const collecting = process.env.COLLECT_ENABLED !== "false";
 
 export const SCHEDULES: Scheduled[] = [
   ...(process.env.WECHAT_SUMMARIES_ENABLED === "true"
-    ? [{ name: "wechat.summarize", cron: "*/5 * * * *", run: summarizePendingWechat }]
+    ? [{ name: "wechat.summarize", cron: "*/30 * * * *", run: () => summarizePendingWechat() }]
     : []),
   { name: "content.sweep", cron: "*/5 * * * *", run: sweepUnprocessed },
   // Full-text translations of newly selected items (model calls; off with MODEL_CALLS_ENABLED=false).

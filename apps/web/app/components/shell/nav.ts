@@ -22,7 +22,7 @@ export const SIDEBAR: Array<{ title: string; items: NavItem[] }> = [
     items: [
       { to: "/", label: "精选", icon: IconBolt, end: true },
       { to: "/discover", label: "今日发现", icon: IconClock },
-      { to: "/wechat", label: "群聊要点", icon: IconMessage },
+      { to: "/wechat", label: "微信群聊", icon: IconMessage },
       { to: "/all", label: `全部${withSubject("动态")}`, icon: IconList },
       { to: "/mp", label: "公众号", icon: IconDoc },
       { to: "/hot", label: "热点榜", icon: IconFlame },

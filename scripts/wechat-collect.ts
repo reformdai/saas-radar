@@ -9,6 +9,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { LocalRead, localBatch, deliverLocalBatch, deliverLocalDiscovery, type LocalState } from "../packages/backend/src/wechat/local.ts";
 import type { WechatGroup } from "@aihot/contracts/wechat";
 import { acquireCollectorLock } from "./wechat/process-lock.ts";
+import { runLocalHistory } from "./wechat/history.ts";
 
 const { values } = parseArgs({ options: {
   "db-dir": { type: "string" }, "key-file": { type: "string" }, "sqlcipher-lib": { type: "string" },
@@ -16,6 +17,7 @@ const { values } = parseArgs({ options: {
   since: { type: "string" }, state: { type: "string" }, interval: { type: "string", default: "600" },
   "list-groups": { type: "boolean" }, once: { type: "boolean" }, help: { type: "boolean" },
   managed: { type: "boolean" },
+  history: { type: "boolean" },
 } });
 
 if (values.help) {
@@ -64,18 +66,33 @@ if (values.help) {
       const seconds = Number(values.interval);
       if (!Number.isInteger(seconds) || seconds < 60) throw new Error("interval 最小 60 秒");
       let state: LocalState | undefined;
-      if (existsSync(statePath)) {
+      if (!values.history && existsSync(statePath)) {
         state = JSON.parse(readFileSync(statePath, "utf8")) as LocalState;
         if (state.version !== 1 || state.account !== account || state.destination !== destination.origin || (!values.managed && JSON.stringify(state.groups) !== JSON.stringify(groups)) || !state.ids || !state.seen || !Number.isSafeInteger(state.since) || state.since < 1) throw new Error("状态文件与账号/接收服务/群白名单不匹配，请指定新的状态文件");
       }
       const since = state?.since ?? Math.floor(values.since ? Date.parse(values.since) / 1000 : Date.now() / 1000 - 7 * 86400);
       if (!Number.isSafeInteger(since) || since < 1 || since > Date.now() / 1000 || values.since && state && Math.floor(Date.parse(values.since) / 1000) !== state.since) throw new Error("接入起点无效或与已有状态不一致");
-      const request = async (path: string, body?: unknown) => {
-        const response = await fetch(`${destination.origin}${path}`, { method: body ? "POST" : "GET", redirect: "error",
-          headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined,
-          signal: AbortSignal.any([controller.signal, AbortSignal.timeout(30000)]) });
-        if (!response.ok) throw new Error(`接收服务请求失败 (${response.status})`);
-        return response.json();
+      let nextHistoryRequest = 0;
+      const request = async (path: string, body?: unknown): Promise<unknown> => {
+        if (values.history && body) {
+          const wait = nextHistoryRequest - Date.now();
+          if (wait > 0) await delay(wait, undefined, { signal: controller.signal });
+          nextHistoryRequest = Date.now() + 140;
+        }
+        for (let attempt = 0; attempt < 4; attempt++) {
+          const response = await fetch(`${destination.origin}${path}`, { method: body ? "POST" : "GET", redirect: "error",
+            headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined,
+            signal: AbortSignal.any([controller.signal, AbortSignal.timeout(30000)]) });
+          if (response.status === 429 && values.history && attempt < 3) {
+            const seconds = Math.min(60, Math.max(1, Number(response.headers.get("retry-after")) || 60));
+            console.log(JSON.stringify({ historyRateLimited: true, retryInSeconds: seconds }));
+            await delay(seconds * 1000, undefined, { signal: controller.signal });
+            continue;
+          }
+          if (!response.ok) throw new Error(`接收服务请求失败 (${response.status})`);
+          return response.json();
+        }
+        throw new Error("历史回填请求重试次数已用完，成功进度已保存");
       };
       do {
         try {
@@ -95,6 +112,14 @@ if (values.help) {
             if (known.some(g => groups.includes(g.group_id) && !g.enabled)) throw new Error("白名单中有已暂停的群；本轮暂停采集，不推进状态");
           }
           const through = Math.floor(Date.now() / 1000);
+          if (values.history) {
+            await runLocalHistory({ args, account, groups: activeGroups, destination: destination.origin,
+              statePath, signal: controller.signal, send: async body => {
+                const response = await request("/api/ingest/wechat", body) as { accepted?: number };
+                if (body.events && response.accepted !== body.events.length) throw new Error("历史回填期间群被暂停；成功批次进度已保存");
+              } });
+            break;
+          }
           const result = await read(since, activeGroups);
           if (state && state.identity !== result.identity) throw new Error("账号目录已变化，拒绝沿用旧采集状态");
           state ??= { version: 1, identity: result.identity, account, destination: destination.origin, groups: activeGroups, since, seen: {}, ids: {} };
@@ -103,15 +128,15 @@ if (values.help) {
           await deliverLocalBatch(account, result.groups, since, batch.events, through, async body => {
             const response = await request("/api/ingest/wechat", body) as { accepted?: number };
             if (body.events && response.accepted !== body.events.length) throw new Error("接收期间群被暂停；保留状态等待重试");
-          });
+          }, batch.unresolvedGroups);
           writeFileSync(`${statePath}.next`, JSON.stringify(batch.next), { mode: 0o600 });
           renameSync(`${statePath}.next`, statePath);
           state = batch.next;
-          console.log(JSON.stringify({ ok: true, changed: batch.events.length, pending: batch.pending, checkedAt: new Date().toISOString() }));
+          console.log(JSON.stringify({ ok: true, changed: batch.events.length, pending: batch.pending, incompleteGroups: batch.unresolvedGroups.length, checkedAt: new Date().toISOString() }));
         } catch (error) {
           if (controller.signal.aborted) break;
           console.error(error instanceof Error ? error.message : "采集失败，保留进度");
-          if (values.once) { process.exitCode = 1; break; }
+          if (values.once || values.history) { process.exitCode = 1; break; }
         }
         if (!values.once) await delay(seconds * 1000, undefined, { signal: controller.signal });
       } while (!values.once && !controller.signal.aborted);

@@ -23,6 +23,7 @@
     "docker:wechat:groups": "WECHAT_COLLECTOR_UID=${WECHAT_COLLECTOR_UID:-$(id -u)} WECHAT_COLLECTOR_GID=${WECHAT_COLLECTOR_GID:-$(id -g)} docker compose -f compose.wechat.yml run --build --no-deps collector --list-groups",
     "docker:wechat:stop": "WECHAT_COLLECTOR_UID=${WECHAT_COLLECTOR_UID:-$(id -u)} WECHAT_COLLECTOR_GID=${WECHAT_COLLECTOR_GID:-$(id -g)} docker compose -f compose.wechat.yml stop collector",
     "docker:wechat:logs": "WECHAT_COLLECTOR_UID=${WECHAT_COLLECTOR_UID:-$(id -u)} WECHAT_COLLECTOR_GID=${WECHAT_COLLECTOR_GID:-$(id -g)} docker compose -f compose.wechat.yml logs -f --tail 100 collector",
+    "docker:wechat:history": "WECHAT_COLLECTOR_UID=${WECHAT_COLLECTOR_UID:-$(id -u)} WECHAT_COLLECTOR_GID=${WECHAT_COLLECTOR_GID:-$(id -g)} docker compose -f compose.wechat.yml run --no-deps collector --history --once",
     "db:migrate": "node --env-file-if-exists=.env scripts/migrate.ts",
     "dev:api": "npm run dev -w @aihot/api",
     "dev:worker": "npm run dev -w @aihot/worker",

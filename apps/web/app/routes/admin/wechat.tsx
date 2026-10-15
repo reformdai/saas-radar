@@ -5,6 +5,7 @@ import type { Route } from "./+types/wechat";
 import { adminGet } from "../../lib/admin.server";
 import { useAdminAction } from "../../features/admin/action";
 import { AdminPage, Badge, Button, Card, Empty, Pager, Time } from "../../features/admin/ui";
+import { WechatMessage } from "../../components/WechatMessage";
 import { bj } from "../../features/admin/format";
 
 export async function loader({ request }: Route.LoaderArgs) {
@@ -56,7 +57,7 @@ export default function Wechat({ loaderData }: Route.ComponentProps) {
               {!messages.length ? <Empty>暂无消息。选择群后通常在 10 分钟内开始同步，首次默认回填采集器接入起点前 7 天以来的消息。</Empty> : <ol className="space-y-4">{messages.map((m) => (
                 <li key={m.message_id} className="rounded-control border border-line p-3">
                   <div className="mb-2 flex flex-wrap justify-between gap-2 text-[12px] text-ink-3"><span className="font-medium text-ink-2">{m.sender_name || m.sender_id || "发言者未识别"}</span><time>{bj(new Date(m.sent_at * 1000).toISOString(), true)}</time></div>
-                  <p className={`whitespace-pre-wrap break-words text-[14px] leading-7 ${m.revoked ? "text-ink-4" : "text-ink"}`}>{m.revoked ? "这条消息已撤回" : m.content || "[无文字内容]"}</p>
+                  <WechatMessage content={m.content} revoked={m.revoked} />
                 </li>
               ))}</ol>}
               <Pager page={page} hasMore={hasMore} />
