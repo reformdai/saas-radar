@@ -24,11 +24,10 @@ const saved = { modelCalls: config.modelCallsEnabled };
 let savedBudget: { per_minute: number; per_hour: number; per_day: number } | undefined;
 
 before(async () => {
-  process.env.DEEPSEEK_BASE_URL = llm.url;
-  process.env.DEEPSEEK_API_KEY = "test-deepseek-key";
+  Object.assign(process.env, { LLM_BASE_URL: llm.url, LLM_API_KEY: "test-llm-key", LLM_MODEL: "test-agent-model" });
   config.modelCallsEnabled = true;
-  [savedBudget] = await sql<{ per_minute: number; per_hour: number; per_day: number }[]>`SELECT per_minute, per_hour, per_day FROM budgets WHERE service = 'deepseek'`;
-  await sql`UPDATE budgets SET per_minute = 1000, per_hour = 1000, per_day = 100000 WHERE service = 'deepseek'`;
+  [savedBudget] = await sql<{ per_minute: number; per_hour: number; per_day: number }[]>`SELECT per_minute, per_hour, per_day FROM budgets WHERE service = 'llm'`;
+  await sql`UPDATE budgets SET per_minute = 1000, per_hour = 1000, per_day = 100000 WHERE service = 'llm'`;
   await sql`INSERT INTO sources (id, name, kind, tier, participation_mode, config, next_fetch_at)
     VALUES (${RSS}, '测试博客', 'rss', 'T2', 'editorial', ${sql.json({ url: `https://example.com/${RSS}.xml`, apiToken: "do-not-send-me" })}, '2100-01-01')`;
   await sql`INSERT INTO sources (id, name, kind, tier, participation_mode, config, next_fetch_at)
@@ -36,7 +35,7 @@ before(async () => {
 });
 
 after(async () => {
-  if (savedBudget) await sql`UPDATE budgets SET per_minute = ${savedBudget.per_minute}, per_hour = ${savedBudget.per_hour}, per_day = ${savedBudget.per_day} WHERE service = 'deepseek'`;
+  if (savedBudget) await sql`UPDATE budgets SET per_minute = ${savedBudget.per_minute}, per_hour = ${savedBudget.per_hour}, per_day = ${savedBudget.per_day} WHERE service = 'llm'`;
   config.modelCallsEnabled = saved.modelCalls;
   await llm.close();
   await stopBoss();

@@ -134,7 +134,7 @@ export default function Agent({ loaderData }: Route.ComponentProps) {
   const fresh = () => { setC(null); setText(""); const p = new URLSearchParams(params); p.delete("id"); setParams(p); };
 
   return (
-    <AdminPage title="小雷" subtitle="后台的嘴替兼跑腿。查东西直接查，动手之前先给你看确认卡；每句对话都会调用 DeepSeek，费用记在回执里。">
+    <AdminPage title="小雷" subtitle="后台的嘴替兼跑腿。查东西直接查，动手之前先给你看确认卡；每句对话都会调用站点的默认模型，费用记在回执里。">
       <div className="grid gap-5 lg:grid-cols-[232px_minmax(0,1fr)]">
         <aside className="order-2 lg:order-1">
           <Button className="mb-3 w-full" onClick={fresh}>＋ 新对话</Button>
@@ -153,7 +153,7 @@ export default function Agent({ loaderData }: Route.ComponentProps) {
           <header className="flex items-center gap-3 border-b border-line px-4 py-3">
             <Face status={status} />
             <div className="min-w-0">
-              <p className="text-[14.5px] font-semibold text-ink">小雷 <span className="ml-1 text-[11.5px] font-normal text-ink-4">DeepSeek 驱动</span></p>
+              <p className="text-[14.5px] font-semibold text-ink">小雷 <span className="ml-1 text-[11.5px] font-normal text-ink-4">后台助理</span></p>
               <p className="flex items-center gap-1.5 text-[12px] text-ink-3">
                 <span className={`size-1.5 rounded-full ${status === "error" ? "bg-hot" : status === "awaiting" ? "bg-amber" : "bg-ok"} ${thinking ? "animate-pulse" : ""}`} />
                 {MOOD[status].label}
@@ -184,7 +184,7 @@ export default function Agent({ loaderData }: Route.ComponentProps) {
             {status === "error" && c?.error && (
               <div className="ml-10 max-w-[560px] rounded-control bg-hot-soft px-3.5 py-2.5 text-[13px] text-hot">
                 翻车了：{c.error}
-                <p className="mt-1 text-[12px] opacity-80">模型没配好时检查 DEEPSEEK_BASE_URL 和 DEEPSEEK_API_KEY；直接再发一句也行。</p>
+                <p className="mt-1 text-[12px] opacity-80">模型没配好时检查 LLM_BASE_URL、LLM_API_KEY 和 LLM_MODEL；直接再发一句也行。</p>
               </div>
             )}
             <div ref={end} />

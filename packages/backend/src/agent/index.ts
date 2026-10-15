@@ -12,7 +12,8 @@ import { chatJson, markReceiptsCompleted } from "../providers/llm.ts";
 import { UnsupportedConfig } from "../sources/config-keys.ts";
 import { TOOLS, ToolInputError, toolCatalog } from "./tools.ts";
 
-export const AGENT_MODEL = "deepseek-flash";
+/** The site's default model (LLM_*), the same one research answers use. */
+export const AGENT_MODEL = "default";
 /** Model steps in one turn: read tools in between, a proposal or an answer ends it. */
 const MAX_STEPS = 6;
 const MAX_MESSAGES = 200;

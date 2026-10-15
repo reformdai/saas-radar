@@ -4,14 +4,9 @@
 
 ## 配置
 
-小雷用 DeepSeek（模型预设 `deepseek-flash`），在 `.env` 里配：
+小雷用站点的默认模型，也就是 `.env` 里的 `LLM_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL`（`LLM_EXTRA_JSON` 同样生效），和研究功能是同一个，不需要另外配置。默认模型要支持 JSON 输出（`LLM_JSON_MODE` 不设为 `false`）。
 
-```bash
-DEEPSEEK_BASE_URL=https://api.deepseek.com/v1
-DEEPSEEK_API_KEY=<你的 key>
-```
-
-还要开着 `MODEL_CALLS_ENABLED`。改完 `.env` 后重启 API 和 worker（Docker：`npm run docker:reload`）。每一步模型调用都走回执和 `deepseek` 预算熔断，费用在「运行」和回执里看。
+还要开着 `MODEL_CALLS_ENABLED`。每一步模型调用都走回执和 `llm` 预算熔断，费用在「运行」和回执里看。
 
 ## 它能做什么
 
