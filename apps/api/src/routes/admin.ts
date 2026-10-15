@@ -14,6 +14,8 @@ import { requeueFailedArticles, runsOverview } from "@aihot/backend/admin/runs";
 import { replaceContactQr, setTargetEnabled, settingsOverview, updateBudget } from "@aihot/backend/admin/settings";
 import { researchTurn, askResearch, researchHistory, researchThread } from "@aihot/backend/research";
 import { archiveState, archiveAction } from "@aihot/backend/sources/mp-archive";
+import { agentConversation, agentHistory, cancelAgentProposal, sendAgentMessage } from "@aihot/backend/agent/index";
+import { confirmAgentProposal } from "@aihot/backend/admin/agent";
 import { createSource, fetchNow, listSources, previewSource, previewStoredSource, sourceDetail, updateSource } from "@aihot/backend/admin/sources";
 import { navCounts } from "@aihot/backend/admin/navigation";
 import { listAudit } from "@aihot/backend/audit";
@@ -51,6 +53,11 @@ export function registerAdmin(app: FastifyInstance) {
   app.get("/api/admin/research", adminHandler(async (_req, _reply, admin) => researchHistory(actorOf(admin))));
   app.get("/api/admin/research/:id", adminHandler(async (req, reply, admin) => orNotFound(req, reply, await researchTurn(param(req, "id"), actorOf(admin)))));
   app.get("/api/admin/research/:id/thread", adminHandler(async (req, reply, admin) => orNotFound(req, reply, await researchThread(param(req, "id"), actorOf(admin)))));
+  app.post("/api/admin/agent", adminHandler(async (req, _reply, admin) => sendAgentMessage(body(req), actorOf(admin), String(req.headers["idempotency-key"] || ""))));
+  app.get("/api/admin/agent", adminHandler(async (_req, _reply, admin) => agentHistory(actorOf(admin))));
+  app.get("/api/admin/agent/:id", adminHandler(async (req, reply, admin) => orNotFound(req, reply, await agentConversation(param(req, "id"), actorOf(admin)))));
+  app.post("/api/admin/agent/:id/confirm", adminHandler(async (req, _reply, admin) => confirmAgentProposal(param(req, "id"), String(body(req).proposalId ?? ""), actorOf(admin))));
+  app.post("/api/admin/agent/:id/cancel", adminHandler(async (req, _reply, admin) => cancelAgentProposal(param(req, "id"), String(body(req).proposalId ?? ""), actorOf(admin))));
   // Sources (F18)
   app.get("/api/admin/sources", adminHandler(async (req) => {
     const f = q(req);
