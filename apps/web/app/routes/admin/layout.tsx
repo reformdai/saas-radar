@@ -25,6 +25,7 @@ const NAV: Array<{ group: string; items: Array<{ to: string; label: string; coun
   {
     group: "内容",
     items: [
+      { to: "/admin/agent", label: "小雷助手" },
       { to: "/admin/content", label: "内容诊断" },
       { to: "/admin/sources", label: "信源", count: "sources", tone: "bad" },
       { to: "/admin/research", label: "研究记录" },
