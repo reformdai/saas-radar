@@ -12,6 +12,10 @@ export interface MpArchiveState {
   listComplete: boolean;
   /** Follows the account's list provider; switching provider starts the history list again. */
   listProvider?: "dajiala" | "everyinfra";
+  /** Where bodies come from: the free article page (default) or the paid Dajiala article_detail. */
+  bodyProvider?: "page" | "dajiala";
+  /** Paid Dajiala body requests over all runs; a reused receipt is not counted. */
+  paidBodies?: number;
   lastReceiptId: number | null;
   error: string | null;
   workingUntil?: string | null;

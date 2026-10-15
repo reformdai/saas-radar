@@ -34,6 +34,7 @@ export interface MpArticle {
   desc: string | null;
   pubtime: string | null;
   receiptId: number;
+  reused: boolean;
 }
 
 function base(): { url: string; key: string } {
@@ -93,5 +94,5 @@ export async function mpArticle(articleUrl: string, opts: { subject: string; ide
     },
   );
   const j = receipt.response as { title?: string; content?: string; author?: string; desc?: string; pubtime?: string };
-  return { title: j.title ?? "", content: j.content ?? "", author: j.author || null, desc: j.desc || null, pubtime: j.pubtime ?? null, receiptId: receipt.receiptId };
+  return { title: j.title ?? "", content: j.content ?? "", author: j.author || null, desc: j.desc || null, pubtime: j.pubtime ?? null, receiptId: receipt.receiptId, reused: receipt.reused };
 }

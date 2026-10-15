@@ -224,6 +224,51 @@ test("missing bodies are read free for daily articles too, without sending them 
  } finally { setGlobalDispatcher(previous); await mock.close(); }
 });
 
+test("paid Dajiala bodies skip articles with a body, never pay twice for one, and pause on an empty balance", async () => {
+ const id = `${source}-paid`;
+ await sql`INSERT INTO sources (id, name, kind, tier, participation_mode, config, next_fetch_at)
+  VALUES (${id}, '极致了补全文', 'mp_account', 'T2', 'editorial', ${sql.json({ ghid: `gh-${id}` })}, '2100-01-01')`;
+ const url = (name: string) => `https://mp.weixin.qq.com/s?__biz=x&mid=1&idx=1&sn=${id}-${name}`;
+ await upsertMaterial({ sourceId: id, url: url('has'), title: '已有正文', language: 'zh', bodyHtml: '<p>旧正文</p>', bodyText: '旧正文', bodyStatus: 'ok', via: 'fetch' });
+ const missing = await upsertMaterial({ sourceId: id, url: url('missing'), title: '缺正文', language: 'zh', bodyStatus: 'none', via: 'fetch', publishedAt: new Date('2026-01-02') });
+ const asked: string[] = [];
+ let balance = true;
+ const server = await stub((_hit, request) => {
+  asked.push(new URL(request.url, 'http://x').searchParams.get('url')!);
+  return balance ? { code: 0, cost_money: 0.03, title: '缺正文', content: '付费正文\\n第二段' } : { code: 20001, msg: '金额不足，请充值' };
+ });
+ process.env.DAJIALA_KEY = 'test-key'; process.env.DAJIALA_BASE_URL = server.url;
+ config.allowPrivateNetworkFetch = true;
+ const saved = process.env.COLLECT_ENABLED; process.env.COLLECT_ENABLED = 'true';
+ const paid = async () => {
+  const queued = (await archiveAction(id, { action: 'bodies', bodyProvider: 'dajiala', maxRequests: 50 }, 'test'))!;
+  await runMpArchive(id, queued.runId, 50);
+  return (await archiveState(id))!;
+ };
+ try {
+  await assert.rejects(archiveAction(id, { action: 'bodies', maxRequests: 50 }, 'test'), /1至20/, 'free page reading keeps its smaller batch');
+  let state = await paid();
+  assert.deepEqual([state.status, state.bodyProvider, state.bodies, state.paidBodies], ['completed', 'dajiala', 1, 1], state.error ?? '');
+  assert.deepEqual(asked, [url('missing')], 'an article that has a body is never requested');
+  const [row] = await sql`SELECT body_status, body_text FROM articles WHERE id = ${missing.articleId}`;
+  assert.equal(row!.body_status, 'ok'); assert.match(row!.body_text, /付费正文/);
+  // The body is lost again: the receipt bought for it is reused, nothing is paid twice.
+  await sql`UPDATE articles SET body_status = 'none' WHERE id = ${missing.articleId}`;
+  state = await paid();
+  assert.deepEqual([state.status, state.bodies, state.paidBodies, asked.length], ['completed', 2, 1, 1]);
+  // An empty balance pauses the batch and does not count the article as empty.
+  balance = false;
+  const another = await upsertMaterial({ sourceId: id, url: url('broke'), title: '没钱了', language: 'zh', bodyStatus: 'none', via: 'fetch' });
+  state = await paid();
+  assert.equal(state.status, 'paused'); assert.match(state.error ?? '', /余额不足/);
+  const [held] = await sql`SELECT raw->>'mpBodyFailed' AS failed FROM articles WHERE id = ${another.articleId}`;
+  assert.equal(held!.failed, null);
+ } finally {
+  await server.close();
+  if (saved === undefined) delete process.env.COLLECT_ENABLED; else process.env.COLLECT_ENABLED = saved;
+ }
+});
+
 test("WeChat pages are spaced across processes, and a verification page pauses them all", async () => {
  const saved = await sql`SELECT value FROM settings WHERE key = 'wechat_page_pace'`;
  const mock = new MockAgent(); mock.disableNetConnect();
