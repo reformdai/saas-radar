@@ -532,3 +532,10 @@
 @keyframes cr-pulse {
   50% { box-shadow: 0 0 0 7px color-mix(in srgb, currentColor 6%, transparent); }
 }
+
+/* 小雷 docked at the right on wide screens (components/assistant): the page makes room for it. */
+@media (min-width: 80rem) {
+  html.assistant-open body {
+    padding-right: 400px;
+  }
+}

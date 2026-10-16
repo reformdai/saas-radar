@@ -7,6 +7,7 @@ import { sql } from "../db.ts";
 import { archiveState } from "../sources/mp-archive.ts";
 import { assertSupportedConfig } from "../sources/config-keys.ts";
 import type { SourceRow } from "../sources/types.ts";
+import { searchKnowledge, type KnowledgeHit } from "../knowledge/search.ts";
 
 /** Same estimates as the archive card: one list request, in CNY. */
 const LIST_PRICE = { dajiala: 0.14, everyinfra: 0.04 } as const;
@@ -27,7 +28,8 @@ const listProviderOf = (config: Record<string, unknown>) => (config.listProvider
 export class ToolInputError extends Error {}
 
 type Proposal = Omit<AgentProposal, "id" | "tool">;
-interface ReadTool<A> { kind: "read"; description: string; params: string; args: z.ZodType<A>; run(args: A): Promise<{ result: unknown; summary: string }> }
+/** `materials` are knowledge passages the answer may cite; the turn numbers them [1], [2]… in the order found. */
+interface ReadTool<A> { kind: "read"; description: string; params: string; args: z.ZodType<A>; run(args: A): Promise<{ result: unknown; summary: string; materials?: KnowledgeHit[] }> }
 interface WriteTool<A> { kind: "write"; description: string; params: string; args: z.ZodType<A>; propose(args: A): Promise<Proposal> }
 type Tool = ReadTool<any> | WriteTool<any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 // Typed one by one, so each tool's arguments are checked against its own schema.
@@ -49,6 +51,18 @@ async function articleOrThrow(id: string) {
 }
 
 export const TOOLS: Record<string, Tool> = {
+  search_knowledge: read({
+    description: "在资料库里检索：全部信源的文章正文（公众号、博客、HN、主动搜索等）、微信群摘要和群聊原消息。回答观点、方法、事实类问题前先用它；返回带编号的片段。"
+      + "source 填信源或群名（如“刘小排”）只搜它；articleId 只搜一篇（用户正在看的文章）；kind 限定 article 或 wechat；since 为 YYYY-MM-DD",
+    params: "{ q: string, source?: string, articleId?: string, kind?: all|article|wechat, since?: string }",
+    args: z.object({ q: z.string().trim().min(1).max(200), source: z.string().trim().max(80).optional(), articleId: z.string().max(100).optional(),
+      kind: z.enum(["all", "article", "wechat"]).optional(), since: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }),
+    async run(a) {
+      const materials = await searchKnowledge(a);
+      return { result: materials.length ? "见 materials" : "没有找到相关资料", materials,
+        summary: `翻了资料库「${a.q}」${a.source ? `（${a.source}）` : ""}，找到 ${materials.length} 段` };
+    },
+  }),
   list_sources: read({
     description: "列出信源，可按关键词、类型、健康状态筛选", params: `{ q?: string, kind?: ${KINDS.join("|")}, health?: string, enabled?: boolean }`,
     args: z.object({ q: z.string().optional(), kind: z.enum(KINDS).optional(), health: z.string().optional(), enabled: z.boolean().optional() }),

@@ -17,6 +17,8 @@ import { GroupSources } from "../features/feed/ReadingGroup";
 import { StoryFollowups } from "../features/item/StoryFollowups";
 import { MediaGallery } from "../features/item/MediaGallery";
 import { QuotedPost } from "../features/item/QuotedPost";
+import { AskAssistant } from "../components/assistant/AskAssistant";
+import { useAssistantPage } from "../components/assistant/store";
 import { IconArrowLeft, IconCopy, IconDownload, IconExternal, IconImage, IconMenu, IconShare } from "../components/icons";
 
 const PosterSheet = lazy(() => import("../features/item/PosterSheet"));
@@ -97,6 +99,7 @@ async function shareOrCopy(item: Pick<SiteItemDetail, "id" | "title">): Promise<
 
 export default function ItemPage() {
   const { item } = useLoaderData<typeof loader>();
+  useAssistantPage({ kind: "article", id: item.id, title: item.title });
   const navigate = useNavigate();
   const hasTranslation = item.hasTranslation;
   const lang = item.bodyLanguage;
@@ -323,7 +326,7 @@ export default function ItemPage() {
             </div>
           )}
 
-          <div className="mt-5"><Link className="text-[14px] text-accent hover:underline" to={`/admin/research?article=${item.id}`}>引用本文，开始研究 →</Link></div>
+          <AskAssistant page={{ kind: "article", id: item.id, title: item.title }} className="mt-5 block text-[14px] text-accent hover:underline" />
           {summaryOnly && <p className="mt-7 rounded-control bg-bg-sunk px-4 py-3 text-[13.5px] leading-relaxed text-ink-3">应来源方要求，这里只提供摘要与原文入口。完整内容请阅读原文。</p>}
 
           {item.body && bodyHtml && (

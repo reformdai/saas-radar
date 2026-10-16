@@ -15,6 +15,7 @@ import { buttonClass } from "./components/ui/Controls";
 import { THEME_BOOT_SCRIPT } from "./lib/local-state";
 import { apiGet } from "./lib/api.server";
 import { useHydratedFlag } from "./lib/hydration";
+import { AssistantDock } from "./components/assistant/AssistantDock";
 
 export const links: Route.LinksFunction = () => [
   { rel: "icon", href: "/favicon.ico", sizes: "any" },
@@ -92,10 +93,12 @@ export default function App() {
   useHydratedFlag();
   const { pathname } = useLocation();
   // The admin has its own chrome.
-  if (pathname === "/admin" || pathname.startsWith("/admin/")) return <Outlet />;
+  // 小雷 is on every page (admin and site) for the administrator; visitors never see it.
+  if (pathname === "/admin" || pathname.startsWith("/admin/")) return <><Outlet /><AssistantDock /></>;
   return (
     <SiteShell changelogVersion={meta.changelogVersion}>
       <Outlet />
+      <AssistantDock />
     </SiteShell>
   );
 }

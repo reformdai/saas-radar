@@ -36,14 +36,16 @@ after(async () => {
   if (web && web.exitCode === null) { web.kill("SIGTERM"); await once(web, "exit"); }
   api.closeAllConnections(); await new Promise<void>((resolve) => api.close(() => resolve()));
 });
-test("account library lists original articles and separate research links", async () => {
+test("account library lists original articles, with no admin entry in the shared HTML", async () => {
  const response = await fetch(`${origin}/mp`); const html = await response.text();
  assert.equal(response.status, 200, logs); assert.match(html, /关键词建站资料/);
- assert.match(html, /公众号资料库/); assert.match(html, /\/mp\/articles\/test-mp/); assert.match(html, /引用并提问/);
+ assert.match(html, /公众号资料库/); assert.match(html, /\/mp\/articles\/test-mp/);
+ // 小雷 and the subscription link appear in the browser for an administrator only; cached HTML is the visitor's.
+ assert.doesNotMatch(html, /问小雷|admin\/research|管理订阅与历史归档/);
 });
-test("account reading page renders stored paragraphs and research entry", async () => {
+test("account reading page renders stored paragraphs without admin entries", async () => {
  const response = await fetch(`${origin}/mp/articles/test-mp`); const html = await response.text();
- assert.equal(response.status, 200, logs); assert.match(html, /<p>第一段<\/p><p>第二段<\/p>/); assert.match(html, /引用本文，开始研究/);
+ assert.equal(response.status, 200, logs); assert.match(html, /<p>第一段<\/p><p>第二段<\/p>/); assert.doesNotMatch(html, /问小雷|admin\/research/);
 });
 test("research page requires admin login and renders a scoped citation input after login", async () => {
  const path = '/admin/research?article=test-mp&kind=mp';
